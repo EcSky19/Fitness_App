@@ -47,7 +47,8 @@ export const darkPalette: Palette = {
   border: '#2A323D',
   text: '#F2F5F8',
   textMuted: '#9BA6B4',
-  textFaint: '#5F6B7A',
+  /** Dimmest readable grey: still >= 4.5:1 on `bg`, `surface` and `surfaceAlt`. */
+  textFaint: '#808C9C',
   primary: '#22C55E',
   primaryDim: '#16A34A',
   onPrimary: '#04150A',
@@ -68,7 +69,8 @@ export const lightPalette: Palette = {
   border: '#DCE3EC',
   text: '#0B0D10',
   textMuted: '#5A6673',
-  textFaint: '#8D98A6',
+  /** Dimmest readable grey: still >= 4.5:1 on `bg` and `surface`. */
+  textFaint: '#66717F',
   primary: '#16A34A',
   primaryDim: '#15803D',
   onPrimary: '#FFFFFF',

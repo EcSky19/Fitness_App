@@ -4,7 +4,8 @@
  * Keys live in `expo-secure-store` under `macrotrack.vision.<providerId>` with a
  * process-lifetime in-memory cache so `VisionProvider.isConfigured()` can stay
  * synchronous. When SecureStore is unavailable (web, some Expo Go paths) the
- * cache becomes the only store — nothing here ever throws.
+ * cache becomes the only store for the current session, and writes report that
+ * the key was not persisted permanently.
  */
 import * as SecureStore from 'expo-secure-store';
 
@@ -14,6 +15,11 @@ export const API_KEY_PREFIX = 'macrotrack.vision.';
 
 /** `null` means "known to be absent"; a missing entry means "not read yet". */
 const cache = new Map<string, string | null>();
+
+export interface ApiKeyWriteResult {
+  persisted: boolean;
+  error?: unknown;
+}
 
 export function apiKeyStorageKey(providerId: string): string {
   return `${API_KEY_PREFIX}${providerId}`;
@@ -28,9 +34,13 @@ function normalize(value: string | null | undefined): string | null {
 /**
  * `EXPO_PUBLIC_*` variables are inlined at build time, so each one must be
  * referenced literally — a computed `process.env[name]` lookup would be empty
- * in a release bundle.
+ * in a release bundle. They are development-only fallbacks: release builds must
+ * not read inlined client-bundle values as secrets.
  */
 export function envApiKey(providerId: string): string | null {
+  const dev = typeof __DEV__ === 'undefined' ? process.env.NODE_ENV !== 'production' : __DEV__;
+  if (!dev) return null;
+
   switch (providerId) {
     case OPENAI_PROVIDER_ID:
       return normalize(process.env.EXPO_PUBLIC_OPENAI_API_KEY);
@@ -59,8 +69,8 @@ async function readSecureAsync(providerId: string): Promise<string | null> {
   }
 }
 
-/** Stores a key. An empty string clears it. Never throws. */
-export async function setApiKey(providerId: string, key: string): Promise<void> {
+/** Stores a key. An empty string clears it. Reports when SecureStore persistence failed. */
+export async function setApiKey(providerId: string, key: string): Promise<ApiKeyWriteResult> {
   const value = normalize(key);
   cache.set(providerId, value);
 
@@ -68,14 +78,18 @@ export async function setApiKey(providerId: string, key: string): Promise<void> 
     if (value === null) {
       if (typeof SecureStore.deleteItemAsync === 'function') {
         await SecureStore.deleteItemAsync(apiKeyStorageKey(providerId));
+        return { persisted: true };
       }
-      return;
+      return { persisted: false };
     }
     if (typeof SecureStore.setItemAsync === 'function') {
       await SecureStore.setItemAsync(apiKeyStorageKey(providerId), value);
+      return { persisted: true };
     }
-  } catch {
+    return { persisted: false };
+  } catch (error) {
     // Secure storage unavailable: the in-memory cache still serves this session.
+    return { persisted: false, error };
   }
 }
 
@@ -93,8 +107,8 @@ export async function getStoredApiKey(providerId: string): Promise<string | null
   return stored;
 }
 
-export async function clearApiKey(providerId: string): Promise<void> {
-  await setApiKey(providerId, '');
+export async function clearApiKey(providerId: string): Promise<ApiKeyWriteResult> {
+  return setApiKey(providerId, '');
 }
 
 /** Synchronous resolution used by `isConfigured()`. */

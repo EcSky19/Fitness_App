@@ -1,24 +1,34 @@
 /**
- * Profile repository — a singleton row (`id = 'me'`) holding the user's
- * biometrics and unit preferences.
+ * Profile repository — one row PER ACCOUNT (migration 3).
+ *
+ * `profile.id` used to be the literal singleton `'me'`, which meant every
+ * account shared one row and biometrics bled across accounts. The row is now
+ * selected by `account_id` (`UNIQUE`, `NOT NULL`); `id` stays a surrogate
+ * primary key so `UserProfile.id` and the `ON CONFLICT(id)` upsert are
+ * unchanged. `PROFILE_ID` remains the id used for the pre-auth row.
  */
 import { nowISO, todayISO } from '@/db/client';
+import { ACCOUNT_ID_COLUMN, COLUMNS } from '@/db/schema';
+import { getCurrentAccountId } from '@/services/auth/currentAccount';
 import type { UserProfile } from '@/types';
 import {
   ensureReady,
   invalidateStore,
   profileToRow,
+  requireCurrentAccountId,
   rowToProfile,
   stripUndefined,
+  toBindValues,
+  upsertSql,
   type ProfileRow,
 } from './mappers';
 
-/** The singleton profile row id. */
+/** The id given to the profile written before any account exists. */
 export const PROFILE_ID = 'me';
 
-const PROFILE_COLUMNS =
-  'id, name, sex, birth_date, height_cm, current_weight_kg, goal_weight_kg, activity_level, ' +
-  'weight_unit, height_unit, onboarded_at, created_at, updated_at';
+const PROFILE_COLUMNS = COLUMNS.profile.join(', ');
+const PROFILE_UPSERT_COLUMNS = [...COLUMNS.profile, ACCOUNT_ID_COLUMN];
+const PROFILE_UPSERT_SQL = upsertSql('profile', PROFILE_UPSERT_COLUMNS);
 
 function defaultProfile(now: string): UserProfile {
   return {
@@ -38,58 +48,44 @@ function defaultProfile(now: string): UserProfile {
   };
 }
 
-/** The stored profile, or `null` when onboarding has never run. */
+/** The stored profile for the signed-in account, or `null` when there is none. */
 export async function getProfile(): Promise<UserProfile | null> {
   const db = await ensureReady();
+  const accountId = getCurrentAccountId();
+  if (!accountId) return null;
+  // Scoped by account_id ONLY. The old "fall back to the oldest row" branch is
+  // gone: with several accounts on the device it handed the caller somebody
+  // else's biometrics.
   const row = await db.getFirstAsync<ProfileRow>(
-    `SELECT ${PROFILE_COLUMNS} FROM profile WHERE id = ? LIMIT 1;`,
-    PROFILE_ID
+    `SELECT ${PROFILE_COLUMNS} FROM profile WHERE account_id = ? LIMIT 1;`,
+    accountId
   );
-  if (row) return rowToProfile(row);
-
-  // Defensive: imported/legacy data may carry a different primary key.
-  const fallback = await db.getFirstAsync<ProfileRow>(
-    `SELECT ${PROFILE_COLUMNS} FROM profile ORDER BY created_at ASC LIMIT 1;`
-  );
-  return fallback ? rowToProfile(fallback) : null;
+  return row ? rowToProfile(row) : null;
 }
 
 /**
- * Upserts the singleton profile. Missing fields fall back to the existing row,
- * or to sane defaults when the profile does not exist yet.
+ * Upserts the signed-in account's profile. Missing fields fall back to the
+ * existing row, or to sane defaults when the profile does not exist yet.
  */
 export async function saveProfile(patch: Partial<UserProfile>): Promise<UserProfile> {
   const db = await ensureReady();
   const now = nowISO();
+  const scope = requireCurrentAccountId('saveProfile');
   const existing = await getProfile();
   const base = existing ?? defaultProfile(now);
 
   const next: UserProfile = {
     ...base,
     ...stripUndefined(patch),
-    id: existing?.id ?? PROFILE_ID,
+    // One row per account: a new account gets its own id rather than colliding
+    // with the pre-auth `'me'` row (whose `ON CONFLICT(id)` would overwrite it).
+    id: existing?.id ?? scope,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
 
-  const row = profileToRow(next);
-  await db.runAsync(
-    `INSERT OR REPLACE INTO profile (${PROFILE_COLUMNS})
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-    row.id,
-    row.name,
-    row.sex,
-    row.birth_date,
-    row.height_cm,
-    row.current_weight_kg,
-    row.goal_weight_kg,
-    row.activity_level,
-    row.weight_unit,
-    row.height_unit,
-    row.onboarded_at,
-    row.created_at,
-    row.updated_at
-  );
+  const row = { ...profileToRow(next), [ACCOUNT_ID_COLUMN]: scope };
+  await db.runAsync(PROFILE_UPSERT_SQL, ...toBindValues(row, PROFILE_UPSERT_COLUMNS));
 
   invalidateStore();
   return next;

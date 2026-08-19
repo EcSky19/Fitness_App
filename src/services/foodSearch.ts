@@ -227,8 +227,14 @@ function isPieceFood(food: Food): boolean {
   return PIECE_LABEL_RE.test(normalize(food.servingLabel ?? ''));
 }
 
+/**
+ * Grams for `quantity` of `unit`.
+ *
+ * A negative, zero or non-finite quantity yields 0 rather than a negative
+ * weight, so a bad caller can never write negative macros into the diary.
+ */
 export function gramsFor(food: Food, quantity: number, unit: ServingUnit): number {
-  const qty = safeNumber(quantity);
+  const qty = Math.max(0, safeNumber(quantity));
   if (qty === 0) return 0;
 
   switch (unit) {
@@ -367,33 +373,75 @@ const SCORE = {
 
 const MIN_FUZZY_QUERY_LENGTH = 4;
 const MIN_FUZZY_SIMILARITY = 0.7;
+/** A candidate can only reach MIN_FUZZY_SIMILARITY within this edit distance. */
+const MAX_FUZZY_DISTANCE_RATIO = 1 - MIN_FUZZY_SIMILARITY;
 
-function levenshtein(a: string, b: string): number {
+/**
+ * Edit distance, bounded by `maxDistance`.
+ *
+ * Returns a value greater than `maxDistance` (not necessarily the true
+ * distance) as soon as the whole working row exceeds the bound, which is all a
+ * similarity threshold needs and keeps a per-keystroke scan over the whole
+ * catalogue cheap. The row buffers are reused across calls because this runs
+ * thousands of times per keystroke and the allocations dominated the work.
+ */
+let dpPrevious = new Uint32Array(64);
+let dpCurrent = new Uint32Array(64);
+
+function levenshtein(a: string, b: string, maxDistance = Infinity): number {
+  const aLen = a.length;
+  const bLen = b.length;
   if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
+  if (aLen === 0) return bLen;
+  if (bLen === 0) return aLen;
+  if (Math.abs(aLen - bLen) > maxDistance) return maxDistance + 1;
 
-  let previous = new Array<number>(b.length + 1);
-  let current = new Array<number>(b.length + 1);
-  for (let j = 0; j <= b.length; j += 1) previous[j] = j;
+  if (dpPrevious.length < bLen + 1) {
+    dpPrevious = new Uint32Array(bLen + 1);
+    dpCurrent = new Uint32Array(bLen + 1);
+  }
+  let previous = dpPrevious;
+  let current = dpCurrent;
+  for (let j = 0; j <= bLen; j += 1) previous[j] = j;
 
-  for (let i = 1; i <= a.length; i += 1) {
+  for (let i = 1; i <= aLen; i += 1) {
+    const aCode = a.charCodeAt(i - 1);
     current[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+    let rowMin = i;
+    for (let j = 1; j <= bLen; j += 1) {
+      const deletion = previous[j] + 1;
+      const insertion = current[j - 1] + 1;
+      const substitution = previous[j - 1] + (aCode === b.charCodeAt(j - 1) ? 0 : 1);
+      let value = deletion < insertion ? deletion : insertion;
+      if (substitution < value) value = substitution;
+      current[j] = value;
+      if (value < rowMin) rowMin = value;
     }
+    if (rowMin > maxDistance) return maxDistance + 1;
     const swap = previous;
     previous = current;
     current = swap;
   }
-  return previous[b.length];
+  dpPrevious = previous;
+  dpCurrent = current;
+  return previous[bLen];
 }
 
+/**
+ * 0..1 similarity, or 0 when the pair provably cannot reach
+ * {@link MIN_FUZZY_SIMILARITY}. Callers only compare against that threshold, so
+ * collapsing every hopeless pair to 0 leaves ranking untouched.
+ */
 function similarity(a: string, b: string): number {
   const longest = Math.max(a.length, b.length);
   if (longest === 0) return 1;
-  return 1 - levenshtein(a, b) / longest;
+
+  const maxDistance = Math.floor(longest * MAX_FUZZY_DISTANCE_RATIO);
+  if (Math.abs(a.length - b.length) > maxDistance) return 0;
+
+  const distance = levenshtein(a, b, maxDistance);
+  if (distance > maxDistance) return 0;
+  return 1 - distance / longest;
 }
 
 function isSubsequence(query: string, target: string): boolean {
@@ -412,26 +460,67 @@ function hasWordMatch(haystack: string, needle: string): boolean {
   return index === 0 || haystack[index - 1] === ' ';
 }
 
-function bestFuzzy(query: string, haystack: string): number {
-  let best = similarity(query, haystack);
-  for (const token of haystack.split(' ')) {
-    if (token.length === 0) continue;
-    const score = similarity(query, token);
-    if (score > best) best = score;
-  }
-  return best;
-}
-
 interface Scored {
   food: SeedFood;
   score: number;
 }
 
-function scoreSeedFood(seed: SeedFood, query: string, queryTokens: string[]): number {
+/**
+ * Pre-normalised view of one seed food.
+ *
+ * Search runs on the JS thread for every keystroke, so normalising ~390 names,
+ * brands and aliases is done once at module load instead of per query.
+ */
+interface SeedIndexEntry {
+  seed: SeedFood;
+  name: string;
+  brand: string;
+  aliases: string[];
+  haystack: string;
+  /** Names and aliases plus their individual words: the typo-match candidates. */
+  fuzzyTargets: string[];
+  /** Tie-break nudge for household staples, applied to any non-zero score. */
+  popularBonus: number;
+}
+
+function buildSeedIndexEntry(seed: SeedFood): SeedIndexEntry {
   const name = normalize(seed.name);
   const brand = normalize(seed.brand ?? '');
-  const aliases = (seed.aliases ?? []).map(normalize);
-  const haystack = [name, brand, ...aliases].filter(Boolean).join(' ');
+  const aliases = (seed.aliases ?? []).map(normalize).filter(Boolean);
+
+  const targets = new Set<string>();
+  for (const text of [name, ...aliases]) {
+    if (!text) continue;
+    targets.add(text);
+    for (const token of text.split(' ')) if (token) targets.add(token);
+  }
+
+  const popularRank = POPULAR_RANK.get(name);
+
+  return {
+    seed,
+    name,
+    brand,
+    aliases,
+    haystack: [name, brand, ...aliases].filter(Boolean).join(' '),
+    fuzzyTargets: [...targets],
+    popularBonus: popularRank === undefined ? 0 : 10 - Math.min(9, popularRank / 3),
+  };
+}
+
+const SEED_INDEX: SeedIndexEntry[] = SEED_FOODS.map(buildSeedIndexEntry);
+
+function bestFuzzy(query: string, targets: string[]): number {
+  let best = 0;
+  for (const target of targets) {
+    const score = similarity(query, target);
+    if (score > best) best = score;
+  }
+  return best;
+}
+
+function scoreSeedFood(entry: SeedIndexEntry, query: string, queryTokens: string[]): number {
+  const { name, brand, aliases, haystack } = entry;
 
   let score = 0;
 
@@ -451,16 +540,12 @@ function scoreSeedFood(seed: SeedFood, query: string, queryTokens: string[]): nu
     score = SCORE.allTokens;
   } else if (isSubsequence(query, name)) score = SCORE.subsequence;
   else if (query.length >= MIN_FUZZY_QUERY_LENGTH) {
-    const best = Math.max(bestFuzzy(query, name), ...aliases.map((a) => bestFuzzy(query, a)), 0);
+    const best = bestFuzzy(query, entry.fuzzyTargets);
     if (best >= MIN_FUZZY_SIMILARITY) score = SCORE.fuzzyBase + Math.round(best * 100);
   }
 
   if (score === 0) return 0;
-
-  // Small, tier-preserving nudge so household staples win ties.
-  const popularRank = POPULAR_RANK.get(name);
-  if (popularRank !== undefined) score += 10 - Math.min(9, popularRank / 3);
-  return score;
+  return score + entry.popularBonus;
 }
 
 function compareScored(a: Scored, b: Scored): number {
@@ -495,9 +580,9 @@ export function searchSeedFoods(q: string, limit = 50): SeedFood[] {
   const queryTokens = query.split(' ').filter(Boolean);
   const scored: Scored[] = [];
 
-  for (const seed of SEED_FOODS) {
-    const score = scoreSeedFood(seed, query, queryTokens);
-    if (score > 0) scored.push({ food: seed, score });
+  for (const entry of SEED_INDEX) {
+    const score = scoreSeedFood(entry, query, queryTokens);
+    if (score > 0) scored.push({ food: entry.seed, score });
   }
 
   scored.sort(compareScored);
@@ -545,8 +630,37 @@ export async function searchAllFoods(q: string, limit = 50): Promise<Food[]> {
 }
 
 /**
+ * Names probed to decide whether the built-in catalogue has ever been imported.
+ * Spread across the dataset so deleting one food does not trigger a re-import.
+ */
+const SEED_PROBE_NAMES: string[] = [
+  SEED_FOODS[0]?.name ?? '',
+  SEED_FOODS[Math.floor(SEED_FOODS.length / 2)]?.name ?? '',
+  SEED_FOODS[SEED_FOODS.length - 1]?.name ?? '',
+].filter(Boolean);
+
+/** True when at least one probe food is already stored. Throws on repository failure. */
+async function catalogueLooksImported(): Promise<boolean> {
+  if (typeof repositories.searchFoods !== 'function' || SEED_PROBE_NAMES.length === 0) return true;
+
+  for (const probe of SEED_PROBE_NAMES) {
+    const found = await repositories.searchFoods(probe, 5);
+    if (!Array.isArray(found)) return true;
+    const target = normalize(probe);
+    if (found.some((food) => food && normalize(food.name ?? '') === target)) return true;
+  }
+  return false;
+}
+
+/**
  * Insert the built-in database on first launch. Safe to call on every app
- * start: it no-ops when foods already exist and returns 0 on any failure.
+ * start: it no-ops once the catalogue is stored and returns 0 on any failure.
+ *
+ * A non-empty `foods` table is not proof the catalogue is there — a quick-add
+ * logged before the first import, or an import that never completed, both leave
+ * rows behind — so a few known seed names are probed before giving up. The
+ * repository's own `seedFoods` skips names that already exist, which keeps the
+ * top-up safe.
  */
 export async function ensureFoodsSeeded(): Promise<number> {
   try {
@@ -555,7 +669,8 @@ export async function ensureFoodsSeeded(): Promise<number> {
     }
 
     const existing = await repositories.countFoods();
-    if (typeof existing !== 'number' || !Number.isFinite(existing) || existing > 0) return 0;
+    if (typeof existing !== 'number' || !Number.isFinite(existing)) return 0;
+    if (existing > 0 && (await catalogueLooksImported())) return 0;
 
     const inputs = SEED_FOODS.map(seedFoodToFoodInput);
     const inserted = await repositories.seedFoods(inputs);

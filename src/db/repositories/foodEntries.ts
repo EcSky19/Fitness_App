@@ -4,16 +4,18 @@
  * Entries store ABSOLUTE macros for the amount consumed, so editing the amount
  * rescales the stored macros proportionally.
  */
-import { newId, nowISO, todayISO } from '@/db/client';
-import { COLUMNS } from '@/db/schema';
+import { newId, nowISO, runInTransaction, todayISO } from '@/db/client';
+import { ACCOUNT_ID_COLUMN, COLUMNS } from '@/db/schema';
 import type { FoodEntry, ID, ISODate } from '@/types';
 import {
+  currentAccountScope,
   EMPTY_MACROS,
   ensureReady,
   foodEntryToRow,
   invalidateStore,
   placeholdersFor,
   rowToFoodEntry,
+  requireCurrentAccountId,
   roundMacro,
   scaleMacros,
   stripUndefined,
@@ -21,9 +23,11 @@ import {
   type BindValue,
   type FoodEntryRow,
 } from './mappers';
+import { deleteFoodPhotoFile, namespaceFoodPhotoUri } from './photoFiles';
 
 const ENTRY_COLUMNS = COLUMNS.food_entries.join(', ');
-const ENTRY_PLACEHOLDERS = placeholdersFor(COLUMNS.food_entries);
+const ENTRY_INSERT_COLUMNS = [...COLUMNS.food_entries, ACCOUNT_ID_COLUMN];
+const ENTRY_PLACEHOLDERS = placeholdersFor(ENTRY_INSERT_COLUMNS);
 const UPDATABLE_COLUMNS = COLUMNS.food_entries.filter((column) => column !== 'id');
 const UPDATE_SET_CLAUSE = UPDATABLE_COLUMNS.map((column) => `${column} = ?`).join(', ');
 
@@ -48,8 +52,8 @@ type OptionalEntryField =
   | 'wasEdited'
   | 'loggedAt';
 
-function entryValues(row: FoodEntryRow): BindValue[] {
-  return toBindValues(row, COLUMNS.food_entries);
+function entryValues(row: FoodEntryRow, accountId: ID): BindValue[] {
+  return toBindValues({ ...row, [ACCOUNT_ID_COLUMN]: accountId }, ENTRY_INSERT_COLUMNS);
 }
 
 function buildEntry(input: NewFoodEntry, now: string): FoodEntry {
@@ -61,7 +65,7 @@ function buildEntry(input: NewFoodEntry, now: string): FoodEntry {
     brand: input.brand ?? null,
     gramsTotal,
     servingLabel: input.servingLabel || `${gramsTotal} g`,
-    macros: input.macros ?? EMPTY_MACROS,
+    macros: input.macros ?? { ...EMPTY_MACROS },
     photoUri: input.photoUri ?? null,
     source: input.source ?? 'custom',
     visionConfidence: input.visionConfidence ?? null,
@@ -73,12 +77,28 @@ function buildEntry(input: NewFoodEntry, now: string): FoodEntry {
   };
 }
 
+async function visibleFoodIdOrNull(foodId: ID | null, accountId: ID): Promise<ID | null> {
+  if (!foodId) return null;
+  const db = await ensureReady();
+  const row = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM foods
+     WHERE id = ? AND (account_id = ? OR (account_id IS NULL AND source = 'seed'))
+     LIMIT 1;`,
+    foodId,
+    accountId
+  );
+  return row ? foodId : null;
+}
+
 /** All entries logged on `date`, in logging order. */
 export async function listEntriesByDate(date: ISODate): Promise<FoodEntry[]> {
   const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return [];
   const rows = await db.getAllAsync<FoodEntryRow>(
     `SELECT ${ENTRY_COLUMNS} FROM food_entries
-     WHERE date = ? ORDER BY logged_at ASC, created_at ASC;`,
+     WHERE account_id = ? AND date = ? ORDER BY logged_at ASC, created_at ASC;`,
+    accountId,
     date
   );
   return (rows ?? []).map(rowToFoodEntry);
@@ -90,11 +110,14 @@ export async function listEntriesByDateRange(
   end: ISODate
 ): Promise<FoodEntry[]> {
   const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return [];
   const [from, to] = start <= end ? [start, end] : [end, start];
   const rows = await db.getAllAsync<FoodEntryRow>(
     `SELECT ${ENTRY_COLUMNS} FROM food_entries
-     WHERE date >= ? AND date <= ?
+     WHERE account_id = ? AND date >= ? AND date <= ?
      ORDER BY date ASC, logged_at ASC, created_at ASC;`,
+    accountId,
     from,
     to
   );
@@ -104,9 +127,12 @@ export async function listEntriesByDateRange(
 /** A single entry by id, or `null`. */
 export async function getFoodEntry(id: ID): Promise<FoodEntry | null> {
   const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return null;
   const row = await db.getFirstAsync<FoodEntryRow>(
-    `SELECT ${ENTRY_COLUMNS} FROM food_entries WHERE id = ? LIMIT 1;`,
-    id
+    `SELECT ${ENTRY_COLUMNS} FROM food_entries WHERE id = ? AND account_id = ? LIMIT 1;`,
+    id,
+    accountId
   );
   return row ? rowToFoodEntry(row) : null;
 }
@@ -114,11 +140,14 @@ export async function getFoodEntry(id: ID): Promise<FoodEntry | null> {
 /** Inserts one entry and returns the stored record. */
 export async function addFoodEntry(input: NewFoodEntry): Promise<FoodEntry> {
   const db = await ensureReady();
+  const accountId = requireCurrentAccountId('addFoodEntry');
   const entry = buildEntry(input, nowISO());
+  entry.foodId = await visibleFoodIdOrNull(entry.foodId, accountId);
+  entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId);
 
   await db.runAsync(
-    `INSERT INTO food_entries (${ENTRY_COLUMNS}) VALUES (${ENTRY_PLACEHOLDERS});`,
-    ...entryValues(foodEntryToRow(entry))
+    `INSERT INTO food_entries (${ENTRY_INSERT_COLUMNS.join(', ')}) VALUES (${ENTRY_PLACEHOLDERS});`,
+    ...entryValues(foodEntryToRow(entry), accountId)
   );
 
   invalidateStore();
@@ -128,16 +157,22 @@ export async function addFoodEntry(input: NewFoodEntry): Promise<FoodEntry> {
 /** Inserts many entries in a single transaction (vision review, copy meal, ...). */
 export async function addFoodEntries(inputs: NewFoodEntry[]): Promise<FoodEntry[]> {
   const db = await ensureReady();
+  const accountId = requireCurrentAccountId('addFoodEntries');
   if (!inputs || inputs.length === 0) return [];
 
   const now = nowISO();
-  const entries = inputs.map((input) => buildEntry(input, now));
+  const entries = await Promise.all(inputs.map(async (input) => {
+    const entry = buildEntry(input, now);
+    entry.foodId = await visibleFoodIdOrNull(entry.foodId, accountId);
+    entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId);
+    return entry;
+  }));
 
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const entry of entries) {
       await db.runAsync(
-        `INSERT INTO food_entries (${ENTRY_COLUMNS}) VALUES (${ENTRY_PLACEHOLDERS});`,
-        ...entryValues(foodEntryToRow(entry))
+        `INSERT INTO food_entries (${ENTRY_INSERT_COLUMNS.join(', ')}) VALUES (${ENTRY_PLACEHOLDERS});`,
+        ...entryValues(foodEntryToRow(entry), accountId)
       );
     }
   });
@@ -155,6 +190,7 @@ export async function addFoodEntries(inputs: NewFoodEntry[]): Promise<FoodEntry[
  */
 export async function updateFoodEntry(id: ID, patch: Partial<FoodEntry>): Promise<FoodEntry> {
   const db = await ensureReady();
+  const accountId = requireCurrentAccountId('updateFoodEntry');
   const existing = await getFoodEntry(id);
   if (!existing) throw new Error(`updateFoodEntry: entry not found (${id})`);
 
@@ -191,11 +227,17 @@ export async function updateFoodEntry(id: ID, patch: Partial<FoodEntry>): Promis
     updatedAt: now,
   };
 
+  if (clean.foodId !== undefined) {
+    next.foodId = await visibleFoodIdOrNull(next.foodId, accountId);
+  }
+  next.photoUri = namespaceFoodPhotoUri(next.photoUri, accountId);
+
   const row = foodEntryToRow(next);
   await db.runAsync(
-    `UPDATE food_entries SET ${UPDATE_SET_CLAUSE} WHERE id = ?;`,
+    `UPDATE food_entries SET ${UPDATE_SET_CLAUSE} WHERE id = ? AND account_id = ?;`,
     ...toBindValues(row, UPDATABLE_COLUMNS),
-    next.id
+    next.id,
+    accountId
   );
 
   invalidateStore();
@@ -205,6 +247,14 @@ export async function updateFoodEntry(id: ID, patch: Partial<FoodEntry>): Promis
 /** Removes an entry. */
 export async function deleteFoodEntry(id: ID): Promise<void> {
   const db = await ensureReady();
-  await db.runAsync('DELETE FROM food_entries WHERE id = ?;', id);
+  const accountId = currentAccountScope();
+  if (!accountId) return;
+  const row = await db.getFirstAsync<{ photo_uri: string | null }>(
+    'SELECT photo_uri FROM food_entries WHERE id = ? AND account_id = ? LIMIT 1;',
+    id,
+    accountId
+  );
+  deleteFoodPhotoFile(row?.photo_uri);
+  await db.runAsync('DELETE FROM food_entries WHERE id = ? AND account_id = ?;', id, accountId);
   invalidateStore();
 }

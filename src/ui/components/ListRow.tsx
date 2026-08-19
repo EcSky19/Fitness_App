@@ -104,6 +104,7 @@ const styles = StyleSheet.create({
     width: 36,
   },
   meta: {
+    flexShrink: 1,
     marginLeft: spacing.sm,
   },
   right: {

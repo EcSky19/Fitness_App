@@ -247,6 +247,25 @@ describe('nutrition — buildDailySummary', () => {
     expect(summary.byMeal.snack).toEqual(emptyMacros());
   });
 
+  it('ignores an entry whose mealType is not a real meal', () => {
+    // `grouped['constructor']` is truthy on a plain object literal, so the old
+    // bucketing guard tried to `.push` onto Object.prototype.constructor.
+    const rogue = {
+      ...makeEntry('breakfast', { calories: 400, protein: 30, carbs: 40, fat: 12 }, 'x1'),
+      mealType: 'constructor',
+    } as unknown as Parameters<typeof buildDailySummary>[0]['entries'][number];
+
+    const summary = buildDailySummary({
+      date: DATE,
+      entries: [rogue, makeEntry('lunch', { calories: 100, protein: 5, carbs: 10, fat: 3 })],
+      exercises: [],
+      targets: TARGETS,
+    });
+
+    expect(Object.keys(summary.byMeal).sort()).toEqual([...MEAL_TYPES].sort());
+    expect(summary.byMeal.lunch.calories).toBe(100);
+  });
+
   it('groups entries across all four meals and sums the totals', () => {
     const entries = [
       makeEntry('breakfast', { calories: 400, protein: 30, carbs: 40, fat: 12 }, 'b1'),

@@ -12,10 +12,27 @@ export interface DividerProps {
 /** 1px hairline separator. */
 export function Divider({ inset = 0, style }: DividerProps): React.JSX.Element {
   const { colors } = useTheme();
-  return <View style={[styles.line, { backgroundColor: colors.border, marginLeft: inset }, style]} />;
+  const indent = typeof inset === 'number' && Number.isFinite(inset) ? Math.max(0, inset) : 0;
+
+  return (
+    <View
+      style={[
+        styles.line,
+        // `width: '100%'` plus a left margin overflows the parent by `inset`;
+        // stretching to the cross axis keeps the line inside its container.
+        indent > 0 ? styles.inset : null,
+        { backgroundColor: colors.border, marginLeft: indent },
+        style,
+      ]}
+    />
+  );
 }
 
 const styles = StyleSheet.create({
+  inset: {
+    alignSelf: 'stretch',
+    width: 'auto',
+  },
   line: {
     height: StyleSheet.hairlineWidth,
     width: '100%',

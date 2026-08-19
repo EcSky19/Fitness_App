@@ -561,14 +561,18 @@ export function routerMock(params: Record<string, unknown> = {}): Record<string,
   const push = jest.fn();
   const replace = jest.fn();
   const back = jest.fn();
+  const dismissAll = jest.fn();
+  const canGoBack = jest.fn(() => true);
   const current = { ...params };
+  const api = { push, replace, back, navigate: push, canGoBack, dismissAll };
   return {
-    router: { push, replace, back, navigate: push },
-    useRouter: () => ({ push, replace, back, navigate: push }),
+    router: api,
+    useRouter: () => api,
     useLocalSearchParams: () => current,
     __push: push,
     __back: back,
     __replace: replace,
+    __canGoBack: canGoBack,
     __setParams: (next: Record<string, unknown>) => {
       for (const key of Object.keys(current)) delete current[key];
       Object.assign(current, next);

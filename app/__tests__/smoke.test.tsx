@@ -15,6 +15,7 @@ import React from 'react';
 import { setupTestDb, teardownTestDb } from '@/db/repositories/__tests__/testDb';
 import { todayISO } from '@/db/client';
 import { DEFAULT_SETTINGS, useAppStore } from '@/store/appStore';
+import { useAuthStore } from '@/store/authStore';
 
 jest.mock('expo-router', () => {
   const ReactLib = require('react') as typeof import('react');
@@ -128,6 +129,9 @@ jest.mock('react-native-safe-area-context', () => {
 });
 
 import RootLayout from '../_layout';
+import ForgotPasswordScreen from '../(auth)/forgot-password';
+import SignInScreen from '../(auth)/sign-in';
+import SignUpScreen from '../(auth)/sign-up';
 import TabsLayout from '../(tabs)/_layout';
 import ActivityScreen from '../(tabs)/activity';
 import DiaryScreen from '../(tabs)/diary';
@@ -144,6 +148,9 @@ import SettingsScreen from '../settings';
 /** Route path -> module default export, mirroring the `app/` directory. */
 const ROUTES: [string, React.ComponentType<Record<string, never>>][] = [
   ['app/_layout.tsx', RootLayout],
+  ['app/(auth)/sign-in.tsx', SignInScreen],
+  ['app/(auth)/sign-up.tsx', SignUpScreen],
+  ['app/(auth)/forgot-password.tsx', ForgotPasswordScreen],
   ['app/(tabs)/_layout.tsx', TabsLayout],
   ['app/(tabs)/index.tsx', TodayScreen],
   ['app/(tabs)/diary.tsx', DiaryScreen],
@@ -182,6 +189,20 @@ beforeEach(() => {
     selectedDate: todayISO(),
     isReady: true,
     dataVersion: 0,
+  });
+  useAuthStore.setState({
+    session: {
+      accountId: 'acct-1',
+      email: 'ada@example.com',
+      displayName: 'Ada',
+      signedInAt: '2026-01-01T10:00:00.000Z',
+    },
+    status: 'signed_in',
+    accounts: [],
+    restore: jest.fn(async () => {
+      await useAppStore.getState().bootstrap();
+    }),
+    refreshAccounts: jest.fn(async () => undefined),
   });
 });
 

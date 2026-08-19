@@ -175,4 +175,35 @@ describe('Onboarding wizard', () => {
     fireEvent.press(screen.getByTestId('fine-tune-reset'));
     expect(screen.queryByTestId('target-warning')).toBeNull();
   });
+
+  it('only saves one plan when finish is double tapped', async () => {
+    render(<OnboardingScreen />);
+    next();
+    fireEvent.changeText(screen.getByTestId('onboarding-name'), 'Alex');
+    fireEvent.changeText(screen.getByTestId('dob-month'), '6');
+    fireEvent.changeText(screen.getByTestId('dob-day'), '15');
+    fireEvent.changeText(screen.getByTestId('dob-year'), String(BIRTH_YEAR));
+    next();
+    fireEvent.changeText(screen.getByTestId('height-cm'), '180');
+    fireEvent.changeText(screen.getByTestId('onboarding-weight'), '80');
+    next();
+    fireEvent.press(screen.getByTestId('activity-option-moderate'));
+    next();
+    fireEvent.press(screen.getByTestId('goal-option-cut'));
+    next();
+
+    const finish = screen.getByTestId('onboarding-finish');
+    await act(async () => {
+      fireEvent.press(finish);
+      fireEvent.press(finish);
+    });
+
+    await waitFor(() => expect(repos.saveProfile).toHaveBeenCalled());
+    await flushAsync();
+
+    expect(repos.saveProfile).toHaveBeenCalledTimes(1);
+    expect(repos.saveGoal).toHaveBeenCalledTimes(1);
+    expect(repos.addWeightLog).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+  });
 });

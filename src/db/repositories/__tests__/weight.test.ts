@@ -9,7 +9,7 @@ import {
   type NewWeightLog,
 } from '@/db/repositories';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 function log(overrides: Partial<NewWeightLog> = {}): NewWeightLog {
   return {
@@ -25,6 +25,7 @@ function log(overrides: Partial<NewWeightLog> = {}): NewWeightLog {
 describe('weight repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {

@@ -100,6 +100,32 @@ describe('useScanReview - portion rescaling', () => {
     const macros = makeMacros();
     expect(rescaleFromBasis(macros, 0, 250)).toEqual(macros);
   });
+
+  it('restores the portion after the quantity field is cleared and retyped', () => {
+    const { result } = setup();
+
+    // Clearing the numeric field emits null, which the reducer reads as 0.
+    act(() => result.current.setQuantity(CHICKEN, null));
+    expect(byId(result.current.items, CHICKEN).grams).toBe(0);
+
+    act(() => result.current.setQuantity(CHICKEN, 2));
+
+    const item = byId(result.current.items, CHICKEN);
+    expect(item.quantity).toBe(2);
+    expect(item.grams).toBe(300);
+    expect(item.macros.calories).toBe(496);
+  });
+
+  it('keeps the quantity anchored to the hand-typed grams', () => {
+    const { result } = setup();
+
+    act(() => result.current.setGrams(CHICKEN, 200));
+    act(() => result.current.setQuantity(CHICKEN, null));
+    act(() => result.current.setQuantity(CHICKEN, 1));
+
+    // 200 g was 1 serving, so one serving must come back as 200 g.
+    expect(byId(result.current.items, CHICKEN).grams).toBe(200);
+  });
 });
 
 describe('useScanReview - include / exclude', () => {

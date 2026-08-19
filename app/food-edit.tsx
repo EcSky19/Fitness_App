@@ -104,12 +104,19 @@ export default function FoodEditScreen(): React.JSX.Element {
     state.visionConfidence != null ? Math.round(state.visionConfidence * 100) : null;
   const isAiDraft = state.mode === 'draft' || state.source === 'vision' || state.source === 'label';
 
+  const closeEditor = useCallback(() => {
+    // Deep links open this modal with nothing behind it; `back()` would strand
+    // the user on the editor after a successful write.
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/diary');
+  }, []);
+
   const handleSave = useCallback(() => {
     void (async () => {
       const saved = await draft.save();
-      if (saved) router.back();
+      if (saved) closeEditor();
     })();
-  }, [draft]);
+  }, [closeEditor, draft]);
 
   const handleDelete = useCallback(() => {
     Alert.alert('Delete entry', `Remove "${state.name}" from your diary?`, [
@@ -120,12 +127,12 @@ export default function FoodEditScreen(): React.JSX.Element {
         onPress: () => {
           void (async () => {
             const removed = await draft.remove();
-            if (removed) router.back();
+            if (removed) closeEditor();
           })();
         },
       },
     ]);
-  }, [draft, state.name]);
+  }, [closeEditor, draft, state.name]);
 
   const handleSaveAsFood = useCallback(() => {
     void (async () => {

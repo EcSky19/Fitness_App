@@ -69,6 +69,7 @@ export function MacroBar({
   return (
     <View
       testID={testID}
+      accessible
       accessibilityLabel={`Protein ${formatGrams(p)}, carbs ${formatGrams(c)}, fat ${formatGrams(f)}`}
       style={style}
     >

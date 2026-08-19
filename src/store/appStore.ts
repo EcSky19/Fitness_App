@@ -37,6 +37,17 @@ export interface AppState {
   setGoal: (g: Goal | null) => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   invalidate: () => void; // dataVersion++
+  /**
+   * Drops every cached row belonging to the previously signed-in account.
+   *
+   * `invalidate()` only bumps `dataVersion`; it RETAINS `profile`, `goal` and
+   * `settings`. On a shared device that means account B would see account A's
+   * profile and goal until something overwrote them — and `bootstrap()` cannot
+   * fix it on its own, because it falls back to the existing value when the new
+   * account has no row yet (`profile ?? state.profile`). Auth MUST call this on
+   * sign-in, sign-out and account switch, before re-running `bootstrap()`.
+   */
+  reset: () => void;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -172,4 +183,22 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   invalidate: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
+
+  reset: () =>
+    set((state) => ({
+      profile: null,
+      goal: null,
+      settings: { ...DEFAULT_SETTINGS },
+      selectedDate: todayISO(),
+      dataVersion: state.dataVersion + 1,
+      // Clearing `isReady` is what makes the reset atomic from the router's
+      // point of view. `authStore` resets and only then awaits `bootstrap()`,
+      // so leaving `isReady` true would expose a window where the cache is
+      // already empty but the new account's rows have not loaded — and the
+      // first-run gate reads that as "this user has never onboarded" and
+      // redirects a fully onboarded account into onboarding. `bootstrap()`
+      // always ends by setting `isReady` back to true (every failure path is
+      // swallowed), so this cannot strand the app on the splash screen.
+      isReady: false,
+    })),
 }));

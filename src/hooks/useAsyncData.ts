@@ -9,8 +9,10 @@
  *
  * It re-runs whenever `deps` change, whenever any repository write bumps
  * `dataVersion` on the app store, and whenever `reload()` is called. Stale
- * responses are dropped (fast date switching can never render out of order) and
- * the previous data is kept while refreshing so screens never flash empty.
+ * responses are dropped (fast date switching can never render out of order),
+ * `error` is cleared when a new request starts so a failure is never reported
+ * against the next date, and the previous data is kept while refreshing so
+ * screens never flash empty.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -44,8 +46,7 @@ function useAsyncDataInternal<T>(
   initial: T,
   watchDataVersion: boolean
 ): AsyncDataResult<T> {
-  const dataVersion = useAppStore((state) => state.dataVersion);
-  const version = watchDataVersion ? dataVersion : 0;
+  const version = useAppStore((state) => (watchDataVersion ? state.dataVersion : 0));
 
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState<boolean>(true);
@@ -72,6 +73,8 @@ function useAsyncDataInternal<T>(
 
     // Only the first load of a dep-set shows a spinner; refreshes keep the data.
     if (!loadedKeysRef.current.has(depsKey)) setLoading(true);
+    // A previous failure must not be reported against the new request.
+    setError(null);
 
     const isCurrent = (): boolean => mountedRef.current && requestId === requestIdRef.current;
 

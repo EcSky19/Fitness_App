@@ -16,7 +16,7 @@
  *  - Calories are never silently rewritten from protein/carbs/fat. A mismatch is
  *    surfaced as a warning with an explicit one-tap fix.
  */
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import {
   addFoodEntry,
@@ -689,6 +689,11 @@ export function useEntryDraft(params: EntryDraftParams): UseEntryDraftResult {
   );
 
   const [saving, setSaving] = useState(false);
+  /**
+   * `saving` only blocks the button on the *next* render; a double tap is
+   * delivered inside a single batch, so the guard has to be synchronous.
+   */
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const entryIdParam = firstParam(params.entryId);
@@ -778,7 +783,9 @@ export function useEntryDraft(params: EntryDraftParams): UseEntryDraftResult {
   const toEntryInput = useCallback(() => buildEntryInput(state), [state]);
 
   const save = useCallback(async (): Promise<boolean> => {
+    if (busyRef.current) return false;
     if (Object.keys(validateEntryDraft(state)).length > 0) return false;
+    busyRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -801,12 +808,15 @@ export function useEntryDraft(params: EntryDraftParams): UseEntryDraftResult {
       setError('Could not save this entry. Please try again.');
       return false;
     } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   }, [state]);
 
   const remove = useCallback(async (): Promise<boolean> => {
+    if (busyRef.current) return false;
     if (!state.entryId) return false;
+    busyRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -817,12 +827,15 @@ export function useEntryDraft(params: EntryDraftParams): UseEntryDraftResult {
       setError('Could not delete this entry. Please try again.');
       return false;
     } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   }, [state.entryId]);
 
   const saveAsCustomFood = useCallback(async (): Promise<boolean> => {
+    if (busyRef.current) return false;
     if (!state.name.trim()) return false;
+    busyRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -833,6 +846,7 @@ export function useEntryDraft(params: EntryDraftParams): UseEntryDraftResult {
       setError('Could not save this as a custom food.');
       return false;
     } finally {
+      busyRef.current = false;
       setSaving(false);
     }
   }, [state]);

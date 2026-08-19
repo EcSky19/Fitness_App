@@ -17,6 +17,11 @@ export interface SegmentedControlProps<T> {
   testID?: string;
 }
 
+/** Recommended minimum touch target; short segments make up the rest with slop. */
+const MIN_TOUCH_TARGET = 44;
+/** Rendered segment heights: vertical padding + the label's line height. */
+const SEGMENT_HEIGHT = { md: 33, sm: 24 } as const;
+
 /** iOS-style segmented picker. Generic over the option value type. */
 export function SegmentedControl<T>({
   options,
@@ -28,6 +33,8 @@ export function SegmentedControl<T>({
 }: SegmentedControlProps<T>): React.JSX.Element {
   const { colors } = useTheme();
   const small = size === 'sm';
+  // Vertical only: horizontal slop would overlap the neighbouring segment.
+  const slop = Math.max(0, Math.round((MIN_TOUCH_TARGET - SEGMENT_HEIGHT[size]) / 2));
 
   return (
     <View
@@ -49,6 +56,7 @@ export function SegmentedControl<T>({
             accessibilityLabel={option.label}
             accessibilityState={{ selected }}
             onPress={() => onChange(option.value)}
+            hitSlop={{ top: slop, bottom: slop, left: 0, right: 0 }}
             style={({ pressed }) => [
               styles.segment,
               small ? styles.segmentSm : null,

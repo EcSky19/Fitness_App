@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { addFoodEntries, upsertFood } from '@/db/repositories';
 import { addDaysISO, formatDateLabel, todayISO } from '@/domain';
@@ -74,6 +74,7 @@ export default function ScanReviewScreen(): React.JSX.Element {
   const [dateSheet, setDateSheet] = useState(false);
   const [saveAsCustom, setSaveAsCustom] = useState(false);
   const [logging, setLogging] = useState(false);
+  const loggingRef = useRef(false);
   const [logError, setLogError] = useState<string | null>(null);
 
   const review = useScanReview(result);
@@ -103,7 +104,10 @@ export default function ScanReviewScreen(): React.JSX.Element {
   );
 
   const handleLog = useCallback(async () => {
-    if (!review.canLog || logging) return;
+    // `logging` only disables the button on the next render; a double tap has
+    // to be rejected synchronously or the batch is written twice.
+    if (!review.canLog || loggingRef.current) return;
+    loggingRef.current = true;
     setLogging(true);
     setLogError(null);
     try {
@@ -124,11 +128,11 @@ export default function ScanReviewScreen(): React.JSX.Element {
     } catch (error) {
       setLogError(errorText(error));
     } finally {
+      loggingRef.current = false;
       setLogging(false);
     }
   }, [
     date,
-    logging,
     mealType,
     mode,
     photoUri,
@@ -342,21 +346,19 @@ export default function ScanReviewScreen(): React.JSX.Element {
         </Sheet>
 
         <Sheet visible={dateSheet} onClose={() => setDateSheet(false)} title="Log to which day?">
-          <ScrollView>
-            {dateOptions.map((option) => (
-              <ListRow
-                key={option}
-                title={formatDateLabel(option)}
-                meta={option === date ? 'Selected' : undefined}
-                leftIcon="calendar-outline"
-                onPress={() => {
-                  setDate(option);
-                  setDateSheet(false);
-                }}
-                testID={`date-option-${option}`}
-              />
-            ))}
-          </ScrollView>
+          {dateOptions.map((option) => (
+            <ListRow
+              key={option}
+              title={formatDateLabel(option)}
+              meta={option === date ? 'Selected' : undefined}
+              leftIcon="calendar-outline"
+              onPress={() => {
+                setDate(option);
+                setDateSheet(false);
+              }}
+              testID={`date-option-${option}`}
+            />
+          ))}
         </Sheet>
       </View>
     </KeyboardAvoider>

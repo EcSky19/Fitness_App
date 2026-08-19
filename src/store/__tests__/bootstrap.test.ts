@@ -136,6 +136,26 @@ describe('appStore.bootstrap', () => {
 
     await expect(countFoodRows()).resolves.toBe(afterFirst);
   });
+  it('survives a React StrictMode double mount (two concurrent bootstraps)', async () => {
+    await saveProfile({ name: 'Ada', heightCm: 165 });
+    await saveSettings({ theme: 'dark' });
+    resetStore();
+
+    // Both effects fire before either finishes — the seeding, the migrations and
+    // the settings write all have to tolerate overlapping transactions.
+    await Promise.all([
+      useAppStore.getState().bootstrap(),
+      useAppStore.getState().bootstrap(),
+    ]);
+    await waitFor(async () => (await countFoodRows()) === SEED_FOODS.length);
+    await flushBackgroundWork();
+
+    const state = useAppStore.getState();
+    expect(state.isReady).toBe(true);
+    expect(state.profile?.name).toBe('Ada');
+    expect(state.settings.theme).toBe('dark');
+    await expect(countFoodRows()).resolves.toBe(SEED_FOODS.length);
+  });
 });
 
 describe('appStore.updateSettings', () => {
@@ -162,6 +182,18 @@ describe('appStore.updateSettings', () => {
 
     expect(useAppStore.getState().settings.weightUnit).toBe('kg');
     expect(useAppStore.getState().settings.visionProvider).toBe('openai');
+  });
+
+  it('keeps the last patch when two settings updates land back to back', async () => {
+    useAppStore.getState().updateSettings({ weightUnit: 'kg' });
+    useAppStore.getState().updateSettings({ energyUnit: 'kJ' });
+
+    await waitFor(async () => (await getSettings()).energyUnit === 'kJ');
+    // The second write must not be overtaken by the first one's snapshot.
+    await expect(getSettings()).resolves.toMatchObject({
+      weightUnit: 'kg',
+      energyUnit: 'kJ',
+    });
   });
 
   it('bumps dataVersion so open screens refetch', () => {

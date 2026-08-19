@@ -13,6 +13,9 @@ export interface ChipProps {
   testID?: string;
 }
 
+/** The pill is only 32pt tall; slop lifts the touch target closer to 44pt. */
+const CHIP_HIT_SLOP = { top: 6, bottom: 6, left: 0, right: 0 } as const;
+
 /** Compact selectable pill used for filters and quick choices. */
 export function Chip({
   label,
@@ -57,6 +60,7 @@ export function Chip({
       accessibilityLabel={label}
       accessibilityState={{ selected }}
       onPress={onPress}
+      hitSlop={CHIP_HIT_SLOP}
       style={({ pressed }) => [
         styles.chip,
         { backgroundColor: background, borderColor },

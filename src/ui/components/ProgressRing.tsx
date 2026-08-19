@@ -53,9 +53,26 @@ export function ProgressRing({
   const track = trackColor ?? hexToRgba(colors.text, 0.1);
   const center = dim / 2;
 
+  // Custom children own their own announcement (they usually carry richer copy),
+  // so the ring only exposes itself as a progressbar in label/sublabel mode.
+  const percent = Math.round(value * 100);
+  const a11y = children
+    ? null
+    : {
+        accessible: true,
+        accessibilityRole: 'progressbar' as const,
+        accessibilityLabel: [label, sublabel].filter(Boolean).join(' ') || 'Progress',
+        accessibilityValue: {
+          min: 0,
+          max: 100,
+          now: Math.min(100, percent),
+          text: `${percent}%`,
+        },
+      };
+
   return (
-    <View testID={testID} style={[{ width: dim, height: dim }, style]}>
-      <Svg width={dim} height={dim} accessibilityLabel={label ?? 'Progress'}>
+    <View testID={testID} {...a11y} style={[{ width: dim, height: dim }, style]}>
+      <Svg width={dim} height={dim}>
         <G rotation={-90} origin={`${center}, ${center}`}>
           <Circle
             cx={center}

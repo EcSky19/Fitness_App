@@ -91,8 +91,10 @@ export default function DiaryScreen(): React.JSX.Element {
   const diary = data ?? EMPTY_DATA;
 
   useEffect(() => {
+    // `useAsyncData` only raises `loading` for a dep set it has never loaded, so
+    // a refresh of the current day is only observable through new `data`.
     if (!loading) setRefreshing(false);
-  }, [loading]);
+  }, [data, loading]);
 
   const summary = useMemo(
     () =>
@@ -113,6 +115,24 @@ export default function DiaryScreen(): React.JSX.Element {
     invalidate();
     reload();
   }, [invalidate, reload]);
+
+  /** Runs a diary write, refreshes on success and never fails silently. */
+  const runWrite = useCallback(
+    (write: () => Promise<unknown>) => {
+      void (async () => {
+        try {
+          await write();
+          afterWrite();
+        } catch (error) {
+          Alert.alert(
+            'Could not update your diary',
+            error instanceof Error ? error.message : 'Please try again.'
+          );
+        }
+      })();
+    },
+    [afterWrite]
+  );
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -155,23 +175,17 @@ export default function DiaryScreen(): React.JSX.Element {
   const handleDuplicate = useCallback(
     (entry: FoodEntry) => {
       setActionEntry(null);
-      void (async () => {
-        await addFoodEntry(cloneEntry(entry));
-        afterWrite();
-      })();
+      runWrite(() => addFoodEntry(cloneEntry(entry)));
     },
-    [afterWrite]
+    [runWrite]
   );
 
   const handleCopyToMeal = useCallback(
     (entry: FoodEntry, mealType: MealType) => {
       setActionEntry(null);
-      void (async () => {
-        await addFoodEntry(cloneEntry(entry, { mealType }));
-        afterWrite();
-      })();
+      runWrite(() => addFoodEntry(cloneEntry(entry, { mealType })));
     },
-    [afterWrite]
+    [runWrite]
   );
 
   const handleDelete = useCallback(
@@ -183,30 +197,26 @@ export default function DiaryScreen(): React.JSX.Element {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            void (async () => {
-              await deleteFoodEntry(entry.id);
-              afterWrite();
-            })();
+            runWrite(() => deleteFoodEntry(entry.id));
           },
         },
       ]);
     },
-    [afterWrite]
+    [runWrite]
   );
 
   const copyEntries = useCallback(
     (entries: FoodEntry[], mealType?: MealType) => {
       if (entries.length === 0) return;
-      void (async () => {
-        await addFoodEntries(
+      runWrite(() =>
+        addFoodEntries(
           entries.map((entry) =>
             cloneEntry(entry, { date: selectedDate, ...(mealType ? { mealType } : null) })
           )
-        );
-        afterWrite();
-      })();
+        )
+      );
     },
-    [afterWrite, selectedDate]
+    [runWrite, selectedDate]
   );
 
   const handleCopyYesterdayMeal = useCallback(

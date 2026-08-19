@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -70,6 +70,7 @@ export default function OnboardingScreen(): React.JSX.Element {
 
   const [fineTuneOpen, setFineTuneOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const stepMeta = ONBOARDING_STEPS[form.step];
 
@@ -79,11 +80,13 @@ export default function OnboardingScreen(): React.JSX.Element {
   }, [form]);
 
   const handleFinish = useCallback(async () => {
+    if (savingRef.current) return;
     const payload = form.buildPayload();
     if (!payload) {
       Alert.alert('Almost there', 'Some details are still missing — go back and check each step.');
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       const savedProfile = await saveProfile(payload.profile);
@@ -106,6 +109,7 @@ export default function OnboardingScreen(): React.JSX.Element {
         error instanceof Error ? error.message : 'Please try again.'
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [form, router, setGoal, setProfile, updateSettings]);

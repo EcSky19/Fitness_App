@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
+import { File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 
 import {
@@ -28,6 +29,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { useAppStore } from '@/store/appStore';
 import type { AppSettings, HealthPermissionStatus, HeightUnit, WeightUnit } from '@/types';
 
+import { AccountSection } from '@/features/auth/AuthUI';
 import { SettingsRow } from '@/features/profile/SettingsRow';
 
 interface VisionProviderInfo {
@@ -54,6 +56,8 @@ const EMPTY_DATA: SettingsData = {
 };
 
 const CONFIRM_WORD = 'DELETE';
+const EXPORT_DESCRIPTION =
+  'This JSON file contains your full MacroTrack health history: profile details, weight history, body fat, goals, the visible food catalogue, and every logged meal.';
 
 /** Only ever shows the last 4 characters — the key itself never reaches the UI. */
 function maskKey(key: string | null | undefined): string | null {
@@ -154,12 +158,23 @@ export default function SettingsScreen(): React.JSX.Element {
     if (trimmed.length === 0) return;
     setBusy('key');
     try {
-      await setApiKey(settings.visionProvider, trimmed);
+      const result = await setApiKey(settings.visionProvider, trimmed);
       setKeyInput('');
       setRefreshToken((n) => n + 1);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {
-      Alert.alert('Could not save key', 'The key could not be stored securely. Please try again.');
+      if (result?.persisted !== false) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert(
+          'Key only saved for this session',
+          'MacroTrack could not write to the device secure store. The key is usable until the app restarts, but it was not saved permanently.'
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Could not save key',
+        error instanceof Error ? error.message : 'The key could not be stored securely. Please try again.'
+      );
     } finally {
       setBusy(null);
     }
@@ -168,9 +183,15 @@ export default function SettingsScreen(): React.JSX.Element {
   const handleClearKey = useCallback(async () => {
     setBusy('key');
     try {
-      await clearApiKey(settings.visionProvider);
+      const result = await clearApiKey(settings.visionProvider);
       setKeyInput('');
       setRefreshToken((n) => n + 1);
+      if (result?.persisted === false) {
+        Alert.alert(
+          'Could not clear persisted key',
+          'The key was removed from this session, but MacroTrack could not update the device secure store. Please try again.'
+        );
+      }
     } catch {
       Alert.alert('Could not clear key', 'Please try again.');
     } finally {
@@ -210,9 +231,26 @@ export default function SettingsScreen(): React.JSX.Element {
     try {
       const payload = await exportAllData();
       const json = JSON.stringify(payload, null, 2);
+      if (Platform.OS !== 'android') {
+        await Share.share({
+          title: 'MacroTrack export',
+          message: json,
+        });
+        return;
+      }
+
+      const file = new File(Paths.cache, `macrotrack-export-${Date.now()}.json`);
+      file.write(json);
+      const info = file.info();
+      const contentUri =
+        'contentUri' in info && typeof info.contentUri === 'string' && info.contentUri.length > 0
+          ? info.contentUri
+          : null;
+      const uri = Platform.OS === 'android' ? contentUri ?? file.uri : file.uri;
+
       await Share.share({
         title: 'MacroTrack export',
-        message: json,
+        message: `MacroTrack export JSON file: ${uri}`,
       });
     } catch (error) {
       Alert.alert('Export failed', error instanceof Error ? error.message : 'Please try again.');
@@ -220,6 +258,18 @@ export default function SettingsScreen(): React.JSX.Element {
       setBusy(null);
     }
   }, []);
+
+  const askExport = useCallback(() => {
+    if (Platform.OS !== 'android') {
+      void handleExport();
+      return;
+    }
+
+    Alert.alert('Export full health history?', EXPORT_DESCRIPTION, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Export JSON file', onPress: () => void handleExport() },
+    ]);
+  }, [handleExport]);
 
   const askClearAll = useCallback(() => {
     Alert.alert(
@@ -269,6 +319,8 @@ export default function SettingsScreen(): React.JSX.Element {
       onRefresh={reload}
       testID="settings-screen"
     >
+      <AccountSection />
+
       {/* ---- Units ---- */}
       <SectionHeader title="Units" />
       <Card>
@@ -534,7 +586,7 @@ export default function SettingsScreen(): React.JSX.Element {
               title="Export"
               size="sm"
               variant="secondary"
-              onPress={() => void handleExport()}
+              onPress={askExport}
               loading={busy === 'export'}
               testID="data-export"
             />

@@ -230,4 +230,37 @@ describe('useGoalEditor', () => {
     expect(result.current.plan).toBeNull();
     expect(result.current.buildGoalPayload()).toBeNull();
   });
+
+  it('picks up a goal that only arrives after the first render', () => {
+    const goal = makeGoal({ type: 'cut', rateKgPerWeek: -0.5 });
+    const { result, rerender } = renderHook(
+      ({ goal: current }: { goal: Goal | null }) =>
+        useGoalEditor({ profile: PROFILE, goal: current }),
+      { initialProps: { goal: null as Goal | null } }
+    );
+
+    expect(result.current.baseTargets).toBeNull();
+
+    // The store bootstraps asynchronously, so the active goal lands later.
+    rerender({ goal });
+
+    expect(result.current.baseTargets).toEqual(goal.targets);
+  });
+
+  it('re-freezes the before column against the goal that was last saved', () => {
+    const first = makeGoal({ type: 'maintain', rateKgPerWeek: 0 });
+    const { result, rerender } = renderHook(
+      ({ goal }: { goal: Goal }) => useGoalEditor({ profile: PROFILE, goal }),
+      { initialProps: { goal: first } }
+    );
+    expect(result.current.baseTargets).toEqual(first.targets);
+
+    const saved = makeGoal({ type: 'cut', rateKgPerWeek: -0.5 });
+    rerender({ goal: saved });
+    act(() => result.current.reset());
+
+    expect(result.current.baseTargets).toEqual(saved.targets);
+    expect(result.current.goalType).toBe('cut');
+    expect(result.current.hasChanges).toBe(false);
+  });
 });

@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -18,6 +20,12 @@ export interface SheetProps {
   visible: boolean;
   onClose: () => void;
   title?: string;
+  /**
+   * Wraps the content in a ScrollView so it stays reachable once the sheet hits
+   * its 90% max height. Default true — turn it off when the content already
+   * manages its own scrolling.
+   */
+  scrollable?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   children?: React.ReactNode;
@@ -28,6 +36,7 @@ export function Sheet({
   visible,
   onClose,
   title,
+  scrollable = true,
   style,
   testID,
   children,
@@ -35,19 +44,41 @@ export function Sheet({
   const { colors } = useTheme();
   const insets = useSafeInsets();
 
+  // Closing while an input is focused must take the keyboard down with it,
+  // otherwise it lingers over the screen behind the sheet.
+  const handleClose = useCallback(() => {
+    Keyboard.dismiss();
+    onClose();
+  }, [onClose]);
+
+  const content = scrollable ? (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      {children}
+    </ScrollView>
+  ) : (
+    <View style={styles.content}>{children}</View>
+  );
+
   return (
     <Modal
       visible={visible}
       transparent
       animationType="slide"
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <View testID={testID} style={styles.root}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"
-          onPress={onClose}
+          onPress={handleClose}
           style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
         />
 
@@ -81,7 +112,7 @@ export function Sheet({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Close sheet"
-                  onPress={onClose}
+                  onPress={handleClose}
                   hitSlop={10}
                   style={({ pressed }) => [
                     styles.closeButton,
@@ -94,7 +125,7 @@ export function Sheet({
               </View>
             ) : null}
 
-            <View style={styles.content}>{children}</View>
+            {content}
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -104,6 +135,8 @@ export function Sheet({
 
 const styles = StyleSheet.create({
   avoider: {
+    // A definite height is what makes the sheet's percentage maxHeight resolve.
+    flex: 1,
     justifyContent: 'flex-end',
   },
   closeButton: {
@@ -115,6 +148,9 @@ const styles = StyleSheet.create({
     width: 28,
   },
   content: {
+    // RN defaults flexShrink to 0, which would let non-scrollable content push
+    // straight through the sheet's maxHeight and off the top of the screen.
+    flexShrink: 1,
     paddingHorizontal: spacing.lg,
   },
   handle: {
@@ -131,6 +167,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  scroll: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   sheet: {
     borderTopLeftRadius: radius.xl,

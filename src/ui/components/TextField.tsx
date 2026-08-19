@@ -83,6 +83,7 @@ export function TextField({
         <TextInput
           testID={testID}
           accessibilityLabel={label ?? placeholder ?? 'Text field'}
+          accessibilityState={{ disabled: !editable }}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}

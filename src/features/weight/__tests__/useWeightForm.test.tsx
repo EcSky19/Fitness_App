@@ -284,4 +284,23 @@ describe('submit', () => {
     expect(saved).toBe(false);
     expect(result.current.error).toBe('db is locked');
   });
+
+  it('writes one weigh-in when save is double tapped', async () => {
+    const onSaved = jest.fn();
+    const { result } = renderHook(() => useWeightForm({ onSaved }));
+
+    act(() => result.current.setDisplayWeight(70));
+
+    const outcomes: boolean[] = [];
+    await act(async () => {
+      // Both taps land in the same batch, before `saving` can re-render.
+      const first = result.current.submit();
+      const second = result.current.submit();
+      outcomes.push(await first, await second);
+    });
+
+    expect(repos.addWeightLog).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([true, false]);
+  });
 });

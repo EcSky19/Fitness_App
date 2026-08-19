@@ -186,7 +186,12 @@ export function useWeightForm(options: UseWeightFormOptions = {}): UseWeightForm
   const canSave =
     weightKg != null && Number.isFinite(weightKg) && weightKg > 0 && dateError == null && !saving;
 
+  const savingRef = useRef(false);
+
   const submit = useCallback(async (): Promise<boolean> => {
+    // `saving` only disables the button on the next render, so a double tap
+    // inside one batch has to be rejected synchronously.
+    if (savingRef.current) return false;
     if (weightKg == null || !Number.isFinite(weightKg) || weightKg <= 0) {
       setError('Enter a weight first.');
       return false;
@@ -196,6 +201,7 @@ export function useWeightForm(options: UseWeightFormOptions = {}): UseWeightForm
       return false;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setError(null);
 
@@ -242,6 +248,7 @@ export function useWeightForm(options: UseWeightFormOptions = {}): UseWeightForm
       setError(saveError instanceof Error ? saveError.message : 'Could not save this weigh-in.');
       return false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [

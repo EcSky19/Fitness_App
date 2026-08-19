@@ -37,6 +37,9 @@ const SIZES: Record<ButtonSize, { height: number; padH: number; font: number; ic
   lg: { height: 54, padH: spacing.xl, font: 17, icon: 20 },
 };
 
+/** Recommended minimum touch target; short buttons make up the rest with slop. */
+const MIN_TOUCH_TARGET = 44;
+
 /** Primary call-to-action control. `loading` shows a spinner and blocks presses. */
 export function Button({
   title,
@@ -78,6 +81,8 @@ export function Button({
     onPress();
   };
 
+  const slop = Math.max(0, Math.round((MIN_TOUCH_TARGET - dims.height) / 2));
+
   return (
     <Pressable
       testID={testID}
@@ -86,6 +91,7 @@ export function Button({
       accessibilityState={{ disabled: isBlocked, busy: loading }}
       disabled={isBlocked}
       onPress={handlePress}
+      hitSlop={{ top: slop, bottom: slop, left: 0, right: 0 }}
       style={({ pressed }) => [
         styles.base,
         {
@@ -100,26 +106,28 @@ export function Button({
         style,
       ]}
     >
+      {/* The label stays mounted while loading so the button keeps its width. */}
+      <View style={[styles.content, loading ? styles.hidden : null]}>
+        {icon ? (
+          <Ionicons name={icon} size={dims.icon} color={foreground} style={styles.icon} />
+        ) : null}
+        <Text
+          numberOfLines={1}
+          style={[
+            typography.title,
+            styles.label,
+            { color: foreground, fontSize: dims.font },
+            textStyle,
+          ]}
+        >
+          {title}
+        </Text>
+      </View>
       {loading ? (
-        <ActivityIndicator size="small" color={foreground} />
-      ) : (
-        <View style={styles.content}>
-          {icon ? (
-            <Ionicons name={icon} size={dims.icon} color={foreground} style={styles.icon} />
-          ) : null}
-          <Text
-            numberOfLines={1}
-            style={[
-              typography.title,
-              styles.label,
-              { color: foreground, fontSize: dims.font },
-              textStyle,
-            ]}
-          >
-            {title}
-          </Text>
+        <View pointerEvents="none" style={styles.spinner}>
+          <ActivityIndicator size="small" color={foreground} />
         </View>
-      )}
+      ) : null}
     </Pressable>
   );
 }
@@ -145,6 +153,9 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     width: '100%',
   },
+  hidden: {
+    opacity: 0,
+  },
   icon: {
     marginRight: spacing.sm,
   },
@@ -155,6 +166,11 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.82,
     transform: [{ scale: 0.98 }],
+  },
+  spinner: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

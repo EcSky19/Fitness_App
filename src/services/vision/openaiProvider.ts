@@ -2,8 +2,9 @@
  * OpenAI chat-completions vision provider.
  *
  * Sends the photo inline as a `data:` URL and forces a JSON object response.
- * The API key is resolved from SecureStore first, then `EXPO_PUBLIC_OPENAI_API_KEY`,
- * and is never echoed into errors, warnings or `rawText`.
+ * The API key is resolved from SecureStore first, then the `__DEV__`-only
+ * `EXPO_PUBLIC_OPENAI_API_KEY` fallback, and is never echoed into errors,
+ * warnings or `rawText`.
  */
 import type { VisionInput, VisionProvider, VisionResult } from '@/types';
 
@@ -115,7 +116,7 @@ export const openaiProvider: VisionProvider = {
       modelId,
       latencyMs: Date.now() - startedAt,
       rawText: redact(content, [apiKey]).slice(0, MAX_RAW_TEXT),
-      warnings: parsed.warnings,
+      warnings: parsed.warnings.map((warning) => redact(warning, [apiKey])),
     };
   },
 };

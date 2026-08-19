@@ -199,7 +199,7 @@ export function buildDailySummary(a: {
     snack: [],
   };
   for (const entry of entries) {
-    const meal: MealType = grouped[entry.mealType] ? entry.mealType : 'snack';
+    const meal: MealType = MEAL_TYPES.includes(entry.mealType) ? entry.mealType : 'snack';
     grouped[meal].push(entry.macros ?? emptyMacros());
   }
   const byMeal = emptyByMeal();

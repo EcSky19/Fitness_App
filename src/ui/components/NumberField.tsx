@@ -34,6 +34,11 @@ function format(value: number | null | undefined, decimals: number): string {
   return String(roundTo(value, decimals));
 }
 
+/** Non-finite props (NaN from a bad division, Infinity) are treated as empty. */
+function toModelValue(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 /**
  * Keeps only digits, an optional leading '-' and at most `decimals` fraction
  * digits, so partial input like "1." or "-" survives until blur.
@@ -81,14 +86,18 @@ export function NumberField({
   const { colors } = useTheme();
   const [raw, setRaw] = useState<string>(() => format(value, decimals));
   const [focused, setFocused] = useState(false);
-  const emitted = useRef<number | null>(value ?? null);
+  const emitted = useRef<number | null>(toModelValue(value));
+  const shownDecimals = useRef<number>(decimals);
 
   // Adopt external changes, but ignore the echo of our own last emission so the
   // user's in-progress text ("1.", "0.05") is never clobbered mid-typing.
+  // A `decimals` change always re-formats: the text on screen has to match the
+  // precision the field now accepts.
   useEffect(() => {
-    const next = value ?? null;
-    if (next === emitted.current) return;
+    const next = toModelValue(value);
+    if (next === emitted.current && decimals === shownDecimals.current) return;
     emitted.current = next;
+    shownDecimals.current = decimals;
     setRaw(format(next, decimals));
   }, [value, decimals]);
 
@@ -123,7 +132,9 @@ export function NumberField({
     if (max !== undefined && next > max) next = max;
     next = roundTo(next, decimals);
     setRaw(format(next, decimals));
-    emit(next);
+    // Blurring an untouched field must not push a redundant update into the
+    // parent — that re-renders (and, in the scan review, re-bases) for nothing.
+    if (next !== emitted.current) emit(next);
   }, [decimals, emit, max, min, raw]);
 
   const borderColor = error ? colors.danger : focused ? colors.primary : colors.border;
@@ -144,6 +155,7 @@ export function NumberField({
         <TextInput
           testID={testID}
           accessibilityLabel={label ?? placeholder ?? 'Number field'}
+          accessibilityState={{ disabled: !editable }}
           value={raw}
           onChangeText={handleChangeText}
           onFocus={() => setFocused(true)}

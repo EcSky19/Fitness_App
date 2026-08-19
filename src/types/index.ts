@@ -234,3 +234,81 @@ export interface Result<T> {
   data?: T;
   error?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Auth contract — local, on-device accounts (schema v3)
+//
+// Everything below is ADDITIVE: nothing above this line changed. Accounts never
+// leave the device; there is no server and no network call anywhere in the auth
+// stack.
+// ---------------------------------------------------------------------------
+
+/** A stored password (or security answer) derivation. Never leaves the device. */
+export interface PasswordHashFields {
+  /** Hex-encoded derived key. */
+  hash: string;
+  /** Hex-encoded per-account random salt (never reused). */
+  salt: string;
+  /** Key-stretching rounds actually used to produce `hash`. */
+  iterations: number;
+  /** Derivation identifier, e.g. `'sha256-iter-v1'`. Stored so old hashes stay verifiable. */
+  algorithm: string;
+}
+
+/**
+ * PUBLIC account shape. Safe for UI, logs and stores.
+ * Carries NO password or security-answer material.
+ */
+export interface Account {
+  id: ID;
+  /** Always normalized: trimmed + lowercase. */
+  email: string;
+  displayName: string;
+  /** Prompt shown for password recovery, or `null` when the user set none. */
+  securityQuestion: string | null;
+  /** True when a security answer is stored (the answer itself is never exposed). */
+  hasSecurityAnswer: boolean;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+  lastLoginAt: ISODateTime | null;
+}
+
+/**
+ * INTERNAL account shape — includes credential material.
+ * Only `@/db/repositories/accounts` and `@/services/auth` may handle this.
+ */
+export interface AccountRecord extends Account {
+  password: PasswordHashFields;
+  securityAnswer: PasswordHashFields | null;
+}
+
+/** The signed-in descriptor persisted in SecureStore. Contains no secrets. */
+export interface AuthSession {
+  accountId: ID;
+  email: string;
+  displayName: string;
+  signedInAt: ISODateTime;
+}
+
+/** Stable machine-readable failure codes returned by `@/services/auth`. */
+export type AuthErrorCode =
+  | 'invalid_email'
+  | 'invalid_display_name'
+  | 'weak_password'
+  | 'email_taken'
+  | 'invalid_credentials'
+  | 'too_many_attempts'
+  | 'not_signed_in'
+  | 'account_not_found'
+  | 'no_security_question'
+  | 'invalid_security_answer'
+  | 'storage_error'
+  | 'unknown';
+
+/**
+ * `Result<T>` plus a stable `code`. Assignable to `Result<T>` everywhere, so
+ * callers may type auth calls as either.
+ */
+export interface AuthResult<T> extends Result<T> {
+  code?: AuthErrorCode;
+}

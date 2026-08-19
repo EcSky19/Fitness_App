@@ -1,9 +1,24 @@
 /**
  * Settings repository — a `key -> JSON` table so new settings never need a
  * migration. Only keys declared on `AppSettings` are read back.
+ *
+ * SCOPED PER ACCOUNT (migration 3): the primary key is `(account_id, key)`, so
+ * every account holds its own copy of every setting. Signed-out calls read and write nothing; only migration-era
+ * unclaimed rows use the legacy sentinel before `claimLegacyData` adopts them.
  */
 import type { AppSettings } from '@/types';
-import { ensureReady, invalidateStore, type SettingsRow } from './mappers';
+import { runInTransaction } from '@/db/client';
+import { ACCOUNT_ID_COLUMN } from '@/db/schema';
+import { getCurrentAccountId } from '@/services/auth/currentAccount';
+import { ensureReady, invalidateStore, upsertSql, type SettingsRow } from './mappers';
+
+const SETTINGS_COLUMNS = [ACCOUNT_ID_COLUMN, 'key', 'value'];
+
+/**
+ * Conflict target is the composite primary key, NOT `key` alone — `ON
+ * CONFLICT(key)` no longer matches any unique index and would fail at runtime.
+ */
+const SETTINGS_UPSERT_SQL = upsertSql('settings', SETTINGS_COLUMNS, 'account_id, key');
 
 /** Every persisted settings key (mirrors `AppSettings`). */
 export const SETTINGS_KEYS: (keyof AppSettings)[] = [
@@ -18,10 +33,15 @@ export const SETTINGS_KEYS: (keyof AppSettings)[] = [
 
 const KNOWN_KEYS = new Set<string>(SETTINGS_KEYS);
 
-/** Persisted settings. Unknown or corrupt keys are ignored. */
+/** Persisted settings for the signed-in account. Unknown or corrupt keys are ignored. */
 export async function getSettings(): Promise<Partial<AppSettings>> {
   const db = await ensureReady();
-  const rows = await db.getAllAsync<SettingsRow>('SELECT key, value FROM settings;');
+  const accountId = getCurrentAccountId();
+  if (!accountId) return {};
+  const rows = await db.getAllAsync<SettingsRow>(
+    'SELECT key, value FROM settings WHERE account_id = ?;',
+    accountId
+  );
 
   const settings: Record<string, unknown> = {};
   for (const row of rows ?? []) {
@@ -42,14 +62,12 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
     ([key, value]) => KNOWN_KEYS.has(key) && value !== undefined
   );
   if (entries.length === 0) return;
+  const accountId = getCurrentAccountId();
+  if (!accountId) return;
 
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const [key, value] of entries) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);',
-        key,
-        JSON.stringify(value)
-      );
+      await db.runAsync(SETTINGS_UPSERT_SQL, accountId, key, JSON.stringify(value));
     }
   });
 

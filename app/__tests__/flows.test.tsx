@@ -11,7 +11,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import React from 'react';
 
 import { addFoodEntry, listEntriesByDate } from '@/db/repositories';
-import { setupTestDb, teardownTestDb } from '@/db/repositories/__tests__/testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from '@/db/repositories/__tests__/testDb';
 import { ensureFoodsSeeded } from '@/services/foodSearch';
 import { DEFAULT_SETTINGS, useAppStore } from '@/store/appStore';
 import type { FoodEntry, VisionResult } from '@/types';
@@ -110,6 +110,7 @@ async function flush(): Promise<void> {
 
 beforeEach(async () => {
   await setupTestDb();
+  await useTestAccount('test-account-a');
   mockParams = {};
   // `clearMocks` wipes implementations between tests.
   mockRouter.canGoBack.mockReturnValue(true);

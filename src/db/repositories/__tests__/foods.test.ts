@@ -16,7 +16,7 @@ import {
 } from '@/db/repositories';
 import type { Macros } from '@/types';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 const MACROS: Macros = { calories: 100, protein: 5, carbs: 10, fat: 3 };
 
@@ -27,6 +27,7 @@ function food(name: string, extra: Partial<FoodInput> = {}): FoodInput {
 describe('foods repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {

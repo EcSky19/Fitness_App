@@ -9,6 +9,7 @@ import { act, render } from '@testing-library/react-native';
 import React from 'react';
 
 import { DEFAULT_SETTINGS, useAppStore } from '@/store/appStore';
+import { useAuthStore } from '@/store/authStore';
 import type { UserProfile } from '@/types';
 
 const mockRouter = {
@@ -97,6 +98,18 @@ beforeEach(() => {
     isReady: false,
     dataVersion: 0,
   });
+  useAuthStore.setState({
+    session: {
+      accountId: 'acct-1',
+      email: 'ada@example.com',
+      displayName: 'Ada',
+      signedInAt: '2026-01-01T10:00:00.000Z',
+    },
+    status: 'signed_in',
+    restore: jest.fn(async () => {
+      await useAppStore.getState().bootstrap();
+    }),
+  });
 });
 
 describe('first-run redirect', () => {
@@ -174,5 +187,82 @@ describe('first-run redirect', () => {
     });
 
     expect(mockRouter.replace).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Signing in must not bounce an already-onboarded account through onboarding.
+   *
+   * `authStore` signs in by flipping `status` to `signed_in`, calling
+   * `appStore.reset()` — which clears `profile` — and only THEN awaiting
+   * `bootstrap()`. Any earlier bootstrap this launch (the sign-out that
+   * preceded this sign-in) has already left `isReady` true, so between the
+   * reset and the reload the gate sees `isReady === true` with `profile ===
+   * null` and concludes a fully onboarded user has never onboarded.
+   */
+  it('does not bounce an already-onboarded account through onboarding on sign-in', async () => {
+    useAuthStore.setState({
+      session: null,
+      status: 'signed_out',
+      restore: jest.fn(async () => undefined),
+    });
+    useAppStore.setState({ isReady: true, profile: null });
+    mockSegments = ['(auth)'];
+
+    let resolveProfile: (value: UserProfile | null) => void = () => undefined;
+    mockRepositories.getProfile.mockReturnValue(
+      new Promise<UserProfile | null>((resolve) => {
+        resolveProfile = resolve;
+      })
+    );
+
+    render(<RootLayout />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    mockRouter.replace.mockClear();
+
+    // Exactly what authStore.signIn does: flip the session, drop cached data,
+    // then start — but do not finish — the reload for the new account.
+    await act(async () => {
+      useAuthStore.setState({
+        session: {
+          accountId: 'acct-1',
+          email: 'ada@example.com',
+          displayName: 'Ada',
+          signedInAt: '2026-01-01T10:00:00.000Z',
+        },
+        status: 'signed_in',
+      });
+      useAppStore.getState().reset();
+      void useAppStore.getState().bootstrap();
+      await Promise.resolve();
+    });
+
+    expect(mockRouter.replace).not.toHaveBeenCalledWith('/onboarding');
+
+    await act(async () => {
+      resolveProfile(ONBOARDED);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)');
+    expect(mockRouter.replace).not.toHaveBeenCalledWith('/onboarding');
+  });
+
+  it('keeps signed-out users away from tabs', async () => {
+    useAuthStore.setState({
+      session: null,
+      status: 'signed_out',
+      restore: jest.fn(async () => undefined),
+    });
+    mockSegments = ['(tabs)'];
+
+    render(<RootLayout />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockRouter.replace).toHaveBeenCalledWith('/(auth)/sign-in');
   });
 });

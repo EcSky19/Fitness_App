@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -42,6 +42,7 @@ import { useAppStore } from '@/store/appStore';
 import { GOAL_LABELS } from '@/types/constants';
 import type { Goal, UserProfile, WeightLog } from '@/types';
 
+import { AccountSection } from '@/features/auth/AuthUI';
 import { BodyStatsCard } from '@/features/profile/BodyStatsCard';
 import { GoalPicker } from '@/features/profile/GoalPicker';
 import { MacroSplitPicker } from '@/features/profile/MacroSplitPicker';
@@ -112,6 +113,7 @@ export default function ProfileScreen(): React.JSX.Element {
   const [editField, setEditField] = useState<ProfileField | null>(null);
   const [goalSheetOpen, setGoalSheetOpen] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
+  const savingGoalRef = useRef(false);
 
   const editor = useGoalEditor({ profile, goal, latestWeightKg: data.latestWeightKg });
 
@@ -126,8 +128,10 @@ export default function ProfileScreen(): React.JSX.Element {
   }, [setGoal, setProfile]);
 
   const persistGoal = useCallback(async () => {
+    if (savingGoalRef.current) return;
     const payload = editor.buildGoalPayload();
     if (!payload) return;
+    savingGoalRef.current = true;
     setSavingGoal(true);
     try {
       await saveGoal(payload);
@@ -138,6 +142,7 @@ export default function ProfileScreen(): React.JSX.Element {
     } catch (error) {
       Alert.alert('Could not save', error instanceof Error ? error.message : 'Please try again.');
     } finally {
+      savingGoalRef.current = false;
       setSavingGoal(false);
     }
   }, [editor, refreshStore, reload]);
@@ -470,6 +475,8 @@ export default function ProfileScreen(): React.JSX.Element {
           testID="profile-reset-onboarding"
         />
       </Card>
+
+      <AccountSection />
 
       <View style={{ height: spacing.xxl }} />
 

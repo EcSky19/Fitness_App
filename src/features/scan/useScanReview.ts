@@ -82,6 +82,11 @@ export interface ReviewItem {
   /** Reference portion used to rescale macros proportionally. */
   basisGrams: number;
   basisMacros: Macros;
+  /**
+   * Grams in one unit of `unit`, remembered independently of `grams` so that a
+   * quantity of 0 (the user clearing the field) stays recoverable.
+   */
+  gramsPerUnit: number;
 }
 
 export interface ScanReviewState {
@@ -211,11 +216,12 @@ function nextId(seq: number): string {
 export function createReviewItem(source: VisionFoodItem, id: string): ReviewItem {
   const macros = finiteMacros(source.macros);
   const grams = nonNegative(source.estimatedGrams);
+  const quantity = finite(source.quantity, 1);
   return {
     id,
     name: typeof source.name === 'string' ? source.name : '',
     brand: typeof source.brand === 'string' && source.brand.length > 0 ? source.brand : null,
-    quantity: finite(source.quantity, 1),
+    quantity,
     unit: SERVING_UNITS.includes(source.unit) ? source.unit : 'serving',
     servingLabel: typeof source.servingLabel === 'string' ? source.servingLabel : '',
     grams,
@@ -227,6 +233,7 @@ export function createReviewItem(source: VisionFoodItem, id: string): ReviewItem
     original: { ...source, macros, estimatedGrams: grams },
     basisGrams: grams,
     basisMacros: macros,
+    gramsPerUnit: quantity > 0 && grams > 0 ? grams / quantity : 0,
   };
 }
 
@@ -249,6 +256,7 @@ export function createBlankItem(id: string): ReviewItem {
     original: null,
     basisGrams: 100,
     basisMacros: macros,
+    gramsPerUnit: 100,
   };
 }
 
@@ -284,10 +292,12 @@ function patch(item: ReviewItem, changes: Partial<ReviewItem>): ReviewItem {
 }
 
 function withGrams(item: ReviewItem, grams: number): ReviewItem {
-  const next = nonNegative(grams);
+  const next = roundTo(nonNegative(grams), 1);
   return patch(item, {
-    grams: roundTo(next, 1),
-    macros: rescaleFromBasis(item.basisMacros, item.basisGrams, next),
+    grams: next,
+    macros: rescaleFromBasis(item.basisMacros, item.basisGrams, nonNegative(grams)),
+    // A zero on either side is a transient editing state, not a new ratio.
+    gramsPerUnit: next > 0 && item.quantity > 0 ? next / item.quantity : item.gramsPerUnit,
   });
 }
 
@@ -330,8 +340,14 @@ export function scanReviewReducer(
 
       case 'setQuantity': {
         const quantity = nonNegative(action.value);
-        // Keep grams proportional to the quantity the user typed.
-        const perUnit = item.quantity > 0 ? item.grams / item.quantity : 0;
+        // Keep grams proportional to the quantity the user typed. `gramsPerUnit`
+        // survives a cleared field, which `item.grams / item.quantity` cannot.
+        const perUnit =
+          item.gramsPerUnit > 0
+            ? item.gramsPerUnit
+            : item.quantity > 0
+              ? item.grams / item.quantity
+              : 0;
         const grams = perUnit > 0 ? quantity * perUnit : item.grams;
         return withGrams(patch(item, { quantity }), grams);
       }

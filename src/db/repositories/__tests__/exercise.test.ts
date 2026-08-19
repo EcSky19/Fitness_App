@@ -9,7 +9,7 @@ import {
   type NewExerciseEntry,
 } from '@/db/repositories';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 function workout(overrides: Partial<NewExerciseEntry> = {}): NewExerciseEntry {
   return {
@@ -29,6 +29,7 @@ function workout(overrides: Partial<NewExerciseEntry> = {}): NewExerciseEntry {
 describe('exercise repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {

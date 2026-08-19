@@ -252,6 +252,13 @@ export function useGoalEditor({
   );
 
   const baseTargetsRef = useRef<MacroTargets | null>(goal?.targets ?? null);
+  const lastGoalRef = useRef<Goal | null>(goal ?? null);
+  if (lastGoalRef.current !== (goal ?? null)) {
+    // The store bootstraps asynchronously and re-emits a new goal after every
+    // save, so the "before" column has to follow the goal that is actually live.
+    lastGoalRef.current = goal ?? null;
+    baseTargetsRef.current = goal?.targets ?? null;
+  }
   const baseTargets = baseTargetsRef.current;
 
   const bounds = useMemo(() => rateBounds(goalType), [goalType]);

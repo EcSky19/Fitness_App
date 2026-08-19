@@ -4,7 +4,8 @@
  * boundaries are mocked.
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 
 import type { ExerciseEntry } from '@/types';
 
@@ -113,5 +114,42 @@ describe('ActivityScreen (real UI + domain)', () => {
     expect(screen.getByText('Log a workout')).toBeTruthy();
     expect(screen.getByText('Find an activity')).toBeTruthy();
     expect(screen.getByText('Custom activity')).toBeTruthy();
+  });
+
+  it('gives the workout sheet exactly one scroll container in each mode', async () => {
+    render(<ActivityScreen />);
+    await screen.findByText('Morning run');
+
+    const baseline = screen.UNSAFE_queryAllByType(ScrollView).length;
+
+    fireEvent.press(screen.getByLabelText('Log workout'));
+
+    // Picker mode: only the results list scrolls, so the search field stays put.
+    expect(screen.getByTestId('activity-picker-list')).toBeTruthy();
+    expect(screen.UNSAFE_queryAllByType(ScrollView)).toHaveLength(baseline + 1);
+
+    fireEvent.press(screen.getByText('Custom activity'));
+
+    // Form mode: only the form scrolls.
+    expect(screen.getByTestId('workout-form-scroll')).toBeTruthy();
+    expect(screen.UNSAFE_queryAllByType(ScrollView)).toHaveLength(baseline + 1);
+  });
+
+  it('only writes one workout when save is double tapped', async () => {
+    render(<ActivityScreen />);
+    await screen.findByText('Morning run');
+
+    fireEvent.press(screen.getByLabelText('Log workout'));
+    fireEvent.press(screen.getByText('Custom activity'));
+    fireEvent.changeText(screen.getByLabelText('Activity name'), 'Rowing');
+    fireEvent.changeText(screen.getByLabelText('Duration'), '25');
+
+    const save = screen.getByLabelText('Save workout');
+    await act(async () => {
+      fireEvent.press(save);
+      fireEvent.press(save);
+    });
+
+    expect(mockRepo.addExerciseEntry).toHaveBeenCalledTimes(1);
   });
 });

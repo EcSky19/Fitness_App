@@ -1,4 +1,5 @@
 import { getDb } from '@/db/client';
+import { SCHEMA_VERSION } from '@/db/schema';
 import {
   addExerciseEntry,
   addFoodEntry,
@@ -17,7 +18,7 @@ import {
 } from '@/db/repositories';
 import type { AppSettings } from '@/types';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { DEFAULT_TEST_ACCOUNT_ID, setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 const ENTRY: NewFoodEntry = {
   date: '2026-05-01',
@@ -66,6 +67,7 @@ async function seedEverything(): Promise<void> {
 describe('settings repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {
@@ -112,9 +114,17 @@ describe('settings repository', () => {
 
   it('skips corrupt values instead of throwing', async () => {
     const db = await getDb();
-    await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);', 'theme', '{');
     await db.runAsync(
-      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);',
+      `INSERT INTO settings (account_id, key, value) VALUES (?, ?, ?)
+       ON CONFLICT(account_id, key) DO UPDATE SET value = excluded.value;`,
+      DEFAULT_TEST_ACCOUNT_ID,
+      'theme',
+      '{'
+    );
+    await db.runAsync(
+      `INSERT INTO settings (account_id, key, value) VALUES (?, ?, ?)
+       ON CONFLICT(account_id, key) DO UPDATE SET value = excluded.value;`,
+      DEFAULT_TEST_ACCOUNT_ID,
       'weightUnit',
       '"kg"'
     );
@@ -126,6 +136,7 @@ describe('settings repository', () => {
 describe('admin repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {
@@ -147,7 +158,7 @@ describe('admin repository', () => {
       'version',
       'weightLogs',
     ]);
-    expect(dump.version).toBe(1);
+    expect(dump.version).toBe(SCHEMA_VERSION);
     expect(dump.exportedAt).toEqual(expect.any(String));
     expect(dump.profile).toMatchObject({ name: 'Ada' });
     expect(dump.goals).toHaveLength(1);

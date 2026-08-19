@@ -112,7 +112,7 @@ export const geminiProvider: VisionProvider = {
       modelId,
       latencyMs: Date.now() - startedAt,
       rawText: redact(content, [apiKey]).slice(0, MAX_RAW_TEXT),
-      warnings: parsed.warnings,
+      warnings: parsed.warnings.map((warning) => redact(warning, [apiKey])),
     };
   },
 };

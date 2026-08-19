@@ -10,6 +10,7 @@
  * that the repository layer needs no extra internal module.
  */
 import { boolToInt, getDb, initDatabase, intToBool, type Database } from '@/db/client';
+import { getCurrentAccountId } from '@/services/auth/currentAccount';
 import type {
   ActivityLevel,
   EntrySource,
@@ -30,6 +31,7 @@ import type {
   UserProfile,
   WeightLog,
   WeightUnit,
+  ID,
 } from '@/types';
 import {
   ACTIVITY_LEVELS,
@@ -574,6 +576,19 @@ export function invalidateStore(): void {
   }
 }
 
+
+/** Returns the signed-in account id, or null when no account scope is available. */
+export function currentAccountScope(): ID | null {
+  return getCurrentAccountId();
+}
+
+/** Throws for write APIs that cannot safely return a null/empty result. */
+export function requireCurrentAccountId(operation: string): ID {
+  const accountId = currentAccountScope();
+  if (!accountId) throw new Error(`${operation}: no current account`);
+  return accountId;
+}
+
 /** Escapes LIKE wildcards so user input can never widen the pattern. */
 export function escapeLikePattern(input: string): string {
   return input.replace(/[\\%_]/g, (char) => `\\${char}`);
@@ -604,4 +619,26 @@ export function toBindValues(row: object, columns: readonly string[]): BindValue
 /** `'?, ?, ?'` for the given column list. */
 export function placeholdersFor(columns: readonly string[]): string {
   return columns.map(() => '?').join(', ');
+}
+
+/**
+ * `INSERT ... ON CONFLICT(<key>) DO UPDATE` for a column list.
+ *
+ * Always prefer this over `INSERT OR REPLACE`: REPLACE DELETEs the conflicting
+ * row first, which (with `foreign_keys = ON`) fires the `ON DELETE SET NULL` /
+ * `ON DELETE CASCADE` actions pointing at it and resets every column outside
+ * `columns` — `account_id` among them. `DO UPDATE` keeps the row identity, so
+ * children stay attached and unlisted columns keep their value.
+ */
+export function upsertSql(
+  table: string,
+  columns: readonly string[],
+  conflictColumn = 'id'
+): string {
+  const assignments = columns
+    .filter((column) => column !== conflictColumn)
+    .map((column) => `${column} = excluded.${column}`)
+    .join(', ');
+  return `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholdersFor(columns)})
+     ON CONFLICT(${conflictColumn}) DO UPDATE SET ${assignments};`;
 }

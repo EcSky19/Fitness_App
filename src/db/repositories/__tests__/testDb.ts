@@ -18,8 +18,21 @@ import {
   initDatabase,
   type Database,
 } from '@/db/client';
+import { setCurrentSession } from '@/services/auth/currentAccount';
+import type { AuthSession, ID } from '@/types';
 
 type BindValue = string | number | bigint | null | Uint8Array;
+
+export const DEFAULT_TEST_ACCOUNT_ID = 'test-account-a';
+
+function testSession(accountId: ID): AuthSession {
+  return {
+    accountId,
+    email: `${accountId}@example.test`,
+    displayName: accountId,
+    signedInAt: '2026-01-01T00:00:00.000Z',
+  };
+}
 
 function normalize(value: unknown): BindValue {
   if (value === null || value === undefined) return null;
@@ -81,18 +94,42 @@ function createAdapter(): { db: Database; raw: DatabaseSync } {
 }
 
 /** Opens a fresh in-memory database, injects it and runs every migration. */
-export async function setupTestDb(): Promise<Database> {
+export async function setupTestDb(options: { withAccount?: boolean } = {}): Promise<Database> {
   __setDbFactory(async () => {
     const { db } = createAdapter();
     await configureConnection(db);
     return db;
   });
   await initDatabase();
-  return getDb();
+  const db = await getDb();
+  const testPath =
+    typeof expect === 'undefined' ? '' : (expect.getState().testPath ?? '');
+  const caller = `${testPath}\n${new Error().stack ?? ''}`;
+  const authTest = /src[\\/]+services[\\/]+auth[\\/]+__tests__/.test(caller);
+  const withAccount = options.withAccount ?? !authTest;
+  if (withAccount) await useTestAccount(DEFAULT_TEST_ACCOUNT_ID);
+  return db;
 }
 
 /** Closes the injected database and restores the default factory. */
 export async function teardownTestDb(): Promise<void> {
+  setCurrentSession(null);
   await closeDb();
   __setDbFactory(null);
+}
+
+export async function useTestAccount(accountId: ID): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO accounts (
+       id, email, display_name, password_hash, password_salt, password_iterations,
+       password_algorithm, created_at, updated_at
+     ) VALUES (?, ?, ?, 'hash', 'salt', 1, 'test', ?, ?) ON CONFLICT(id) DO NOTHING;`,
+    accountId,
+    `${accountId}@example.test`,
+    accountId,
+    '2026-01-01T00:00:00.000Z',
+    '2026-01-01T00:00:00.000Z'
+  );
+  setCurrentSession(testSession(accountId));
 }

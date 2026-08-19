@@ -65,6 +65,13 @@ const MAX_ITEMS = 25;
 const CALORIE_MISMATCH_TOLERANCE = 0.3;
 const DEFAULT_GRAMS = 100;
 const DEFAULT_CONFIDENCE = 0.5;
+/** Longest free-text field we keep; anything beyond this is model noise. */
+const MAX_TEXT_LENGTH = 120;
+const MAX_NOTES_LENGTH = 280;
+/** 100 kg of a single food is never a real portion. */
+const MAX_GRAMS = 100_000;
+/** Ceiling for a single macro/calorie figure, so garbage can't poison day totals. */
+const MAX_MACRO = 100_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -78,7 +85,40 @@ function pick(record: Record<string, unknown>, keys: string[]): unknown {
   return undefined;
 }
 
-/** Coerces "12g", "1,200", "~250", "2-3", "1/2" and `{value: 3}` into a number. */
+/**
+ * A number as models write it: digits with optional grouping/decimal separators
+ * and an optional exponent. Deliberately matches `.5` and `1,200` as one token
+ * so the separators can be interpreted in context.
+ */
+const NUMBER_PATTERN = String.raw`(?:\d[\d,]*(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?`;
+const MIXED_FRACTION_RE = /^(\d+)\s+(\d+)\s*\/\s*(\d+)/;
+const FRACTION_RE = new RegExp(String.raw`^(${NUMBER_PATTERN})\s*/\s*(${NUMBER_PATTERN})`);
+const RANGE_RE = new RegExp(String.raw`^(${NUMBER_PATTERN})\s*(?:-|–|to)\s*(${NUMBER_PATTERN})`, 'i');
+const NUMBER_RE = new RegExp(String.raw`-?${NUMBER_PATTERN}`);
+
+const THOUSANDS_RE = /^-?\d{1,3}(?:,\d{3})+$/;
+const DECIMAL_COMMA_RE = /^-?\d+,\d{1,2}$/;
+
+/**
+ * Interprets one numeric token.
+ *
+ * A comma is a thousands separator only when it groups exactly three digits
+ * (`1,200` -> 1200). A trailing group of one or two digits is read as a
+ * European decimal comma (`1,2` -> 1.2), because no locale groups thousands
+ * that way. Anything else has its commas stripped.
+ */
+function parseNumericToken(token: string): number | null {
+  let text = token;
+  if (THOUSANDS_RE.test(text)) text = text.replace(/,/g, '');
+  else if (DECIMAL_COMMA_RE.test(text)) text = text.replace(',', '.');
+  else text = text.replace(/,/g, '');
+
+  if (!text || text === '-') return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** Coerces "12g", "1,200", "~250", "2-3", "1/2", ".5", "1e3" and `{value: 3}` into a number. */
 export function toNumber(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'boolean' || value === null || value === undefined) return null;
@@ -90,29 +130,31 @@ export function toNumber(value: unknown): number | null {
 
   if (typeof value !== 'string') return null;
 
-  const cleaned = value
-    .replace(/,/g, '')
-    .replace(/[~≈><]/g, '')
-    .trim();
+  const cleaned = value.replace(/[~≈><]/g, '').trim();
   if (!cleaned) return null;
 
-  const mixed = cleaned.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)/);
+  const mixed = cleaned.match(MIXED_FRACTION_RE);
   if (mixed) {
     const denominator = Number(mixed[3]);
     if (denominator) return Number(mixed[1]) + Number(mixed[2]) / denominator;
   }
 
-  const fraction = cleaned.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+  const fraction = cleaned.match(FRACTION_RE);
   if (fraction) {
-    const denominator = Number(fraction[2]);
-    if (denominator) return Number(fraction[1]) / denominator;
+    const numerator = parseNumericToken(fraction[1] ?? '');
+    const denominator = parseNumericToken(fraction[2] ?? '');
+    if (numerator !== null && denominator) return numerator / denominator;
   }
 
-  const range = cleaned.match(/^(\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(\d+(?:\.\d+)?)/i);
-  if (range) return (Number(range[1]) + Number(range[2])) / 2;
+  const range = cleaned.match(RANGE_RE);
+  if (range) {
+    const low = parseNumericToken(range[1] ?? '');
+    const high = parseNumericToken(range[2] ?? '');
+    if (low !== null && high !== null) return (low + high) / 2;
+  }
 
-  const match = cleaned.match(/-?\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : null;
+  const match = cleaned.match(NUMBER_RE);
+  return match ? parseNumericToken(match[0]) : null;
 }
 
 function toText(value: unknown): string {
@@ -121,17 +163,28 @@ function toText(value: unknown): string {
   return '';
 }
 
-function round(value: number, decimals = 1): number {
-  const factor = 10 ** decimals;
-  return Math.round(value * factor) / factor;
+/** Caps free text so one runaway model field can't reach the diary or a warning. */
+function truncate(value: string, max = MAX_TEXT_LENGTH): string {
+  return value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
 }
 
-/** Non-negative, finite, rounded. */
+function round(value: number, decimals = 1): number {
+  const factor = 10 ** decimals;
+  const rounded = Math.round(value * factor) / factor;
+  // `-0` compares equal to 0 but serialises and matches differently.
+  return rounded === 0 ? 0 : rounded;
+}
+
+/** Non-negative, finite, rounded, and capped at a physically possible value. */
 function clampMacro(value: unknown, warnings: string[], label: string, name: string): number {
   const parsed = toNumber(value);
   if (parsed === null) return 0;
   if (parsed < 0) {
     warnings.push(`Negative ${label} for ${name} was corrected to 0.`);
+    return 0;
+  }
+  if (parsed > MAX_MACRO) {
+    warnings.push(`Implausible ${label} for ${name} was ignored.`);
     return 0;
   }
   return round(parsed);
@@ -140,10 +193,15 @@ function clampMacro(value: unknown, warnings: string[], label: string, name: str
 function clampOptionalMacro(value: unknown): number | undefined {
   const parsed = toNumber(value);
   if (parsed === null) return undefined;
-  return round(Math.max(0, parsed));
+  return round(Math.min(MAX_MACRO, Math.max(0, parsed)));
 }
 
-/** Accepts 0..1 and 0..100 percentages. */
+/**
+ * Accepts 0..1 and 0..100 percentages.
+ *
+ * Anything greater than 1 is read as a percentage (`85` -> 0.85), so a bare `1`
+ * means full confidence rather than 1%. Models that want 1% must say `0.01`.
+ */
 export function normalizeConfidence(value: unknown): number {
   const parsed = toNumber(value);
   if (parsed === null) return DEFAULT_CONFIDENCE;
@@ -172,7 +230,7 @@ export function normalizeUnit(
   const wordAlias = UNIT_ALIASES[firstWord];
   if (wordAlias) return wordAlias;
 
-  warnings.push(`Unknown unit "${toText(value)}" for ${name}; using ${fallback}.`);
+  warnings.push(`Unknown unit "${truncate(toText(value), 24)}" for ${name}; using ${fallback}.`);
   return fallback;
 }
 
@@ -220,6 +278,70 @@ function tryParse(candidate: string | null): unknown {
   }
 }
 
+/**
+ * Rebuilds a document that stopped mid-stream because the model hit its token
+ * limit: rewinds to the last value that was definitely complete and closes the
+ * containers still open at that point. Returns `null` when there is nothing to
+ * salvage (so genuinely broken input still fails).
+ */
+function repairTruncated(text: string): string | null {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let stringIsValue = false;
+  let previous = '';
+  let safeIndex = -1;
+  let safeStack: string[] = [];
+
+  const mark = (index: number): void => {
+    if (stack.length === 0) return;
+    safeIndex = index;
+    safeStack = [...stack];
+  };
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') {
+        inString = false;
+        previous = '"';
+        if (stringIsValue) mark(i + 1);
+      }
+      continue;
+    }
+
+    if (char === ' ' || char === '\n' || char === '\r' || char === '\t') continue;
+
+    if (char === '"') {
+      inString = true;
+      // Inside an array every string is a value; inside an object only the one
+      // that follows a colon is.
+      stringIsValue = stack[stack.length - 1] === '[' || previous === ':';
+      continue;
+    }
+
+    if (char === '{' || char === '[') stack.push(char);
+    else if (char === '}' || char === ']') {
+      stack.pop();
+      mark(i + 1);
+    } else if (char === ',') mark(i);
+
+    previous = char ?? '';
+  }
+
+  if (!inString && stack.length === 0) return null;
+  if (safeIndex < 0) return null;
+
+  const closers = safeStack
+    .reverse()
+    .map((open) => (open === '{' ? '}' : ']'))
+    .join('');
+  return text.slice(0, safeIndex) + closers;
+}
+
 /** Best-effort JSON recovery from prose/fenced/truncated model output. */
 export function extractJson(raw: string): unknown {
   const trimmed = typeof raw === 'string' ? raw.trim() : '';
@@ -240,16 +362,22 @@ export function extractJson(raw: string): unknown {
     if (parsed !== undefined) return parsed;
   }
 
-  // Last resort: some models emit trailing commas or single quotes.
+  // Some models emit trailing commas or single quotes.
   const repaired = stripped
     .replace(/,\s*([}\]])/g, '$1')
     .replace(/'/g, '"');
-  return tryParse(repaired) ?? tryParse(balancedSlice(repaired, '{', '}'));
+  const fromRepaired = tryParse(repaired) ?? tryParse(balancedSlice(repaired, '{', '}'));
+  if (fromRepaired !== undefined) return fromRepaired;
+
+  // Last resort: the response was cut off mid-object.
+  return tryParse(repairTruncated(stripped)) ?? tryParse(repairTruncated(trimmed));
 }
 
 function collectWarnings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((entry) => toText(entry)).filter((entry) => entry.length > 0);
+  return value
+    .map((entry) => truncate(toText(entry), MAX_NOTES_LENGTH))
+    .filter((entry) => entry.length > 0);
 }
 
 /** Coerces the parsed root into a list of raw item records. */
@@ -283,10 +411,10 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
   const nested = isRecord(raw.macros) ? raw.macros : isRecord(raw.nutrition) ? raw.nutrition : null;
   const source: Record<string, unknown> = nested ? { ...raw, ...nested } : raw;
 
-  const name = toText(pick(source, ['name', 'food', 'item', 'label', 'product', 'description']));
+  const name = truncate(toText(pick(source, ['name', 'food', 'item', 'label', 'product', 'description'])));
   if (!name) return null;
 
-  const brandText = toText(pick(source, ['brand', 'brandName', 'brand_name', 'manufacturer']));
+  const brandText = truncate(toText(pick(source, ['brand', 'brandName', 'brand_name', 'manufacturer'])));
   const brand = brandText && brandText.toLowerCase() !== 'null' ? brandText : null;
 
   const quantityRaw = toNumber(pick(source, ['quantity', 'qty', 'amount', 'servings', 'count']));
@@ -318,8 +446,11 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
     ])
   );
   let estimatedGrams: number;
-  if (gramsRaw !== null && gramsRaw > 0) {
+  if (gramsRaw !== null && gramsRaw > 0 && gramsRaw <= MAX_GRAMS) {
     estimatedGrams = round(gramsRaw);
+  } else if (gramsRaw !== null && gramsRaw > MAX_GRAMS) {
+    estimatedGrams = DEFAULT_GRAMS;
+    warnings.push(`Implausible portion size for ${name}; assumed ${DEFAULT_GRAMS} g.`);
   } else {
     estimatedGrams = DEFAULT_GRAMS;
     warnings.push(`Missing portion size for ${name}; assumed ${DEFAULT_GRAMS} g.`);
@@ -341,7 +472,8 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
     calories = Math.round(derived);
     warnings.push(`Calories missing for ${name}; derived from macros.`);
   } else if (calories > 0 && derived > 0) {
-    const drift = Math.abs(calories - derived) / Math.max(derived, 1);
+    // Symmetric: the same absolute gap warns whichever figure is the larger one.
+    const drift = Math.abs(calories - derived) / Math.max(Math.min(calories, derived), 1);
     if (drift > CALORIE_MISMATCH_TOLERANCE) {
       warnings.push(`Calories don't match macros for ${name}; double-check the numbers.`);
     }
@@ -355,12 +487,12 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
   if (sugar !== undefined) macros.sugar = sugar;
   if (sodium !== undefined) macros.sodium = sodium;
 
-  const servingLabelText = toText(
-    pick(source, ['servingLabel', 'serving_label', 'serving', 'servingSize', 'serving_size', 'portion'])
+  const servingLabelText = truncate(
+    toText(pick(source, ['servingLabel', 'serving_label', 'serving', 'servingSize', 'serving_size', 'portion']))
   );
   const servingLabel = servingLabelText || buildServingLabel(quantity, unit, estimatedGrams);
 
-  const notesText = toText(pick(source, ['notes', 'note', 'assumption', 'comment']));
+  const notesText = truncate(toText(pick(source, ['notes', 'note', 'assumption', 'comment'])), MAX_NOTES_LENGTH);
   const notes = notesText && notesText.toLowerCase() !== 'null' ? notesText : null;
 
   return {

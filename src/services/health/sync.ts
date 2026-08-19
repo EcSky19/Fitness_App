@@ -4,7 +4,8 @@
  * Everything here is defensive: a missing repository, a store failure or a
  * platform error is converted into `Result.error`, never thrown. Imports are
  * idempotent — each entry carries a stable `externalId`, so re-syncing a day
- * updates the existing rows instead of duplicating them.
+ * updates the existing rows instead of duplicating them, and the synthesized
+ * "Daily activity" row is removed again as soon as the day has a real workout.
  */
 import { Platform } from 'react-native';
 
@@ -66,6 +67,27 @@ const UPSERT_PATHS = [
   'upsertExerciseFromHealth',
 ];
 
+/** Accepted names for the per-day read used to reconcile synthesized rows. */
+const LIST_PATHS = [
+  'listExercisesByDate',
+  'exerciseRepo.listExercisesByDate',
+  'exercisesRepo.listExercisesByDate',
+  'exerciseRepository.listExercisesByDate',
+];
+
+/** Accepted names for the delete used to drop a stale synthesized row. */
+const DELETE_PATHS = [
+  'deleteExerciseEntry',
+  'exerciseRepo.deleteExerciseEntry',
+  'exercisesRepo.deleteExerciseEntry',
+  'exerciseRepository.deleteExerciseEntry',
+];
+
+/** External id of the row that carries a workout-free day's active energy. */
+export function dailyActivityExternalId(date: ISODate): string {
+  return `daily-activity-${date}`;
+}
+
 function resolveFn(mod: UnknownRecord, path: string): ((...args: never[]) => unknown) | null {
   const parts = path.split('.');
   let current: unknown = mod;
@@ -114,6 +136,48 @@ async function resolveUpsert(): Promise<UpsertFn | null> {
     if (fn) return fn as unknown as UpsertFn;
   }
   return null;
+}
+
+function resolveFirst(paths: string[]): ((...args: never[]) => unknown) | null {
+  const mod = loadRepositories();
+  if (!mod) return null;
+  for (const path of paths) {
+    const fn = resolveFn(mod, path);
+    if (fn) return fn;
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Drops the synthesized "Daily activity" row for `date`.
+ *
+ * That row only exists to carry active energy on a day with no workouts. Once
+ * the platform reports a real workout for the same day the row is stale, and
+ * leaving it in place would count the day's burn twice. Best effort: a
+ * repository without the read/delete helpers, or any failure, is a no-op.
+ */
+async function removeStaleDailyActivity(date: ISODate): Promise<void> {
+  try {
+    const list = resolveFirst(LIST_PATHS);
+    const remove = resolveFirst(DELETE_PATHS);
+    if (!list || !remove) return;
+
+    const entries = await (list as (date: ISODate) => Promise<unknown>)(date);
+    if (!Array.isArray(entries)) return;
+
+    const externalId = dailyActivityExternalId(date);
+    for (const entry of entries) {
+      if (!isRecord(entry) || entry.externalId !== externalId) continue;
+      const id = typeof entry.id === 'string' && entry.id ? entry.id : null;
+      if (id) await (remove as (id: string) => Promise<unknown>)(id);
+    }
+  } catch {
+    // Reconciliation must never fail a sync.
+  }
 }
 
 async function isSyncEnabled(): Promise<boolean> {
@@ -168,7 +232,10 @@ interface DaySyncOutcome {
 }
 
 /** Builds every row a day should produce, workouts first. */
-function buildEntries(summary: HealthDaySummary, source: EntrySource): ExternalExerciseInput[] {
+function buildEntries(
+  summary: HealthDaySummary,
+  source: EntrySource
+): { entries: ExternalExerciseInput[]; synthesized: boolean } {
   const entries: ExternalExerciseInput[] = [];
   const seen = new Set<string>();
 
@@ -197,13 +264,14 @@ function buildEntries(summary: HealthDaySummary, source: EntrySource): ExternalE
       durationMin: Math.max(0, Math.round(summary.exerciseMinutes)),
       caloriesBurned: Math.round(summary.activeEnergyKcal),
       source,
-      externalId: `daily-activity-${summary.date}`,
+      externalId: dailyActivityExternalId(summary.date),
       notes: null,
       loggedAt: localNoon(summary.date),
     });
+    return { entries, synthesized: true };
   }
 
-  return entries;
+  return { entries, synthesized: false };
 }
 
 async function syncDay(ctx: SyncContext, date: ISODate): Promise<DaySyncOutcome> {
@@ -220,8 +288,10 @@ async function syncDay(ctx: SyncContext, date: ISODate): Promise<DaySyncOutcome>
     };
   }
 
+  const { entries, synthesized } = buildEntries(summary, ctx.source);
+
   let imported = 0;
-  for (const entry of buildEntries(summary, ctx.source)) {
+  for (const entry of entries) {
     try {
       await ctx.upsert(entry);
       imported += 1;
@@ -229,6 +299,10 @@ async function syncDay(ctx: SyncContext, date: ISODate): Promise<DaySyncOutcome>
       errors.push(errorMessage(error, `Failed to import ${entry.name}`));
     }
   }
+
+  // The synthetic row is valid only while the day has no workouts. Reconcile
+  // once every write succeeded, so a failed import can never delete real data.
+  if (!synthesized && errors.length === 0) await removeStaleDailyActivity(date);
 
   return { summary, imported, errors };
 }

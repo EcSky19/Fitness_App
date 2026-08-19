@@ -2,7 +2,7 @@
  * Bottom sheet for logging a new workout or editing a manual one.
  * All calorie logic lives in `useWorkoutForm`.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -60,10 +60,13 @@ function WorkoutSheetBody({
   const form = useWorkoutForm({ date, weightKg, entry });
   const [pickerOpen, setPickerOpen] = useState(!entry);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = useCallback(async () => {
-    if (!form.canSave || saving) return;
+    // A double tap arrives before `saving` can re-render the button.
+    if (!form.canSave || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setSaveError(null);
     try {
@@ -84,9 +87,10 @@ function WorkoutSheetBody({
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save this workout.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
-  }, [entry, form, invalidate, onClose, onSaved, saving]);
+  }, [entry, form, invalidate, onClose, onSaved]);
 
   if (pickerOpen) {
     return (
@@ -255,7 +259,15 @@ export function LogWorkoutSheet({
   onSaved,
 }: LogWorkoutSheetProps): React.JSX.Element {
   return (
-    <Sheet visible={visible} onClose={onClose} title={entry ? 'Edit workout' : 'Log a workout'}>
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title={entry ? 'Edit workout' : 'Log a workout'}
+      // Both bodies below scroll themselves: the form needs a taller extent than
+      // the picker, and the picker's search field has to stay pinned above its
+      // results. A second scroller here would nest same-axis ScrollViews.
+      scrollable={false}
+    >
       {visible ? (
         <WorkoutSheetBody
           date={date}

@@ -11,7 +11,7 @@ import {
 import { useAppStore } from '@/store/appStore';
 import type { Macros } from '@/types';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 function entry(overrides: Partial<NewFoodEntry> = {}): NewFoodEntry {
   const macros: Macros = { calories: 300, protein: 20, carbs: 30, fat: 10 };
@@ -38,10 +38,25 @@ function entry(overrides: Partial<NewFoodEntry> = {}): NewFoodEntry {
 describe('food entries repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {
     await teardownTestDb();
+  });
+
+  it('gives every macro-less entry its own zeroed macros object', async () => {
+    // `buildEntry` used to hand back the shared exported EMPTY_MACROS constant,
+    // so mutating one entry's macros corrupted every future entry.
+    const a = await addFoodEntry(entry({ macros: undefined }));
+    const b = await addFoodEntry(entry({ macros: undefined }));
+
+    expect(a.macros).not.toBe(b.macros);
+    a.macros.calories = 999;
+    expect(b.macros.calories).toBe(0);
+
+    const c = await addFoodEntry(entry({ macros: undefined }));
+    expect(c.macros).toEqual({ calories: 0, protein: 0, carbs: 0, fat: 0 });
   });
 
   it('adds, reads and deletes entries', async () => {

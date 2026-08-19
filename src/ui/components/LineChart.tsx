@@ -269,7 +269,9 @@ export function LineChart({
   const colorFor = (s: ResolvedSeries): string =>
     s.color ?? paletteCycle[s.key % paletteCycle.length];
 
-  const legendItems = allSeries.filter((s) => !!s.label);
+  // Only series that actually draw a line earn a legend entry — a swatch for an
+  // empty series claims data the chart never shows.
+  const legendItems = allSeries.filter((s) => !!s.label && s.points.length > 0);
   const legendVisible = (showLegend ?? allSeries.length > 1) && legendItems.length > 1;
 
   if (model.empty) {

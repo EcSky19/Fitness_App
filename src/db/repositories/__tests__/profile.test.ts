@@ -1,7 +1,7 @@
 import { getDb } from '@/db/client';
-import { getProfile, PROFILE_ID, saveProfile } from '@/db/repositories';
+import { getProfile, saveProfile } from '@/db/repositories';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 async function countProfileRows(): Promise<number> {
   const db = await getDb();
@@ -12,6 +12,7 @@ async function countProfileRows(): Promise<number> {
 describe('profile repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {
@@ -22,10 +23,10 @@ describe('profile repository', () => {
     await expect(getProfile()).resolves.toBeNull();
   });
 
-  it('creates the singleton profile with sane defaults', async () => {
+  it('creates the account profile with sane defaults', async () => {
     const saved = await saveProfile({ name: 'Ada', heightCm: 165 });
 
-    expect(saved.id).toBe(PROFILE_ID);
+    expect(saved.id).toBe('test-account-a');
     expect(saved.name).toBe('Ada');
     expect(saved.heightCm).toBe(165);
     expect(saved.sex).toBe('male');

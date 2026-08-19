@@ -1,11 +1,12 @@
 import { getActiveGoal, listGoals, saveGoal } from '@/db/repositories';
 import type { Goal } from '@/types';
 
-import { setupTestDb, teardownTestDb } from './testDb';
+import { setupTestDb, teardownTestDb, useTestAccount } from './testDb';
 
 describe('goals repository', () => {
   beforeEach(async () => {
     await setupTestDb();
+    await useTestAccount('test-account-a');
   });
 
   afterEach(async () => {

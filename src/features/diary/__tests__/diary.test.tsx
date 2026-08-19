@@ -183,6 +183,19 @@ describe('diary screen', () => {
     expect(payload).not.toHaveProperty('createdAt');
   });
 
+  it('warns instead of failing silently when a duplicate write fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    repos.addFoodEntry.mockRejectedValueOnce(new Error('db is locked'));
+    await renderDiary();
+
+    fireEvent(screen.getByTestId('entry-row-l1'), 'longPress');
+    fireEvent.press(screen.getByTestId('entry-action-duplicate'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0][0]).toBe('Could not update your diary');
+    alertSpy.mockRestore();
+  });
+
   it('copies an entry to another meal', async () => {
     await renderDiary();
 

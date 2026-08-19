@@ -18,6 +18,42 @@ let dbPromise: Promise<Database> | null = null;
 let initPromise: Promise<void> | null = null;
 let dbFactory: DbFactory | null = null;
 
+/** Chains transactions so two of them can never overlap on the connection. */
+let transactionQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `task` inside a transaction, serialized against every other call.
+ *
+ * `expo-sqlite`'s `withTransactionAsync` issues a bare `BEGIN` on the shared
+ * connection and is explicitly documented as "not exclusive": two overlapping
+ * calls (two settings toggles, a double-tapped save, a StrictMode double
+ * bootstrap) make the second `BEGIN` fail with
+ * `cannot start a transaction within a transaction`, and any interleaved write
+ * silently joins — and can be rolled back with — the other transaction.
+ *
+ * Queueing them here keeps every multi-statement write atomic regardless of how
+ * the UI interleaves. `withExclusiveTransactionAsync` is not an option: it opens
+ * a second connection (unsupported on web and impossible for `:memory:`).
+ *
+ * Transactions must never be nested — SQLite has no nested transactions and a
+ * nested call would wait on the queue forever.
+ */
+export function runInTransaction<T>(db: Database, task: () => Promise<T>): Promise<T> {
+  const run = transactionQueue.then(async () => {
+    let result!: T;
+    await db.withTransactionAsync(async () => {
+      result = await task();
+    });
+    return result;
+  });
+  // Keep the queue alive after a failed transaction.
+  transactionQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 /** Applies the pragmas every MacroTrack connection relies on. */
 export async function configureConnection(db: Database): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL;');
@@ -95,7 +131,7 @@ async function runMigrations(): Promise<void> {
   );
   if (pending.length === 0) return;
 
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     for (const migration of pending) {
       await db.execAsync(migration.sql);
       await db.runAsync(
