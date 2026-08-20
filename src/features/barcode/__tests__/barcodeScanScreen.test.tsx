@@ -1,6 +1,7 @@
 /* eslint-env jest */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { useCameraPermissions } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 
@@ -47,6 +48,7 @@ const mockedValid = isValidBarcode as unknown as jest.Mock;
 const mockedLookup = lookupBarcode as unknown as jest.Mock;
 const mockedGetFoodByBarcode = getFoodByBarcode as unknown as jest.Mock;
 const mockedUpsertFood = upsertFood as unknown as jest.Mock;
+const mockedHapticWarning = Haptics.notificationAsync as unknown as jest.Mock;
 
 const PRODUCT: BarcodeProduct = {
   barcode: '4006381333931',
@@ -99,6 +101,7 @@ beforeEach(() => {
     updatedAt: '2026-08-19T12:00:00.000Z',
     ...input,
   }));
+  mockedHapticWarning.mockClear();
 });
 
 describe('barcode scanner', () => {
@@ -124,6 +127,36 @@ describe('barcode scanner', () => {
 
     await waitFor(() => expect(screen.getByTestId('barcode-feedback')).toBeTruthy());
     expect(mockedLookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a burst of the same invalid code only once', async () => {
+    mockedValid.mockReturnValue(false);
+    const rendered = render(<BarcodeScanScreen />);
+    const camera = (rendered as any).UNSAFE_getByType('CameraView');
+
+    act(() => {
+      for (let i = 0; i < 6; i += 1) {
+        camera.props.onBarcodeScanned({ type: 'code128', data: 'LOT-ABC-123' });
+      }
+    });
+
+    await waitFor(() => expect(screen.getByTestId('barcode-feedback')).toBeTruthy());
+    expect(mockedHapticWarning).toHaveBeenCalledTimes(1);
+    expect(mockedLookup).not.toHaveBeenCalled();
+  });
+
+  it('still looks up a different valid code after rejecting an invalid code', async () => {
+    mockedValid.mockImplementation((code: string) => code === PRODUCT.barcode);
+    mockedLookup.mockResolvedValue(new Promise(() => {}));
+    const rendered = render(<BarcodeScanScreen />);
+
+    scan(rendered, 'LOT-ABC-123');
+    await waitFor(() => expect(mockedHapticWarning).toHaveBeenCalledTimes(1));
+
+    scan(rendered, PRODUCT.barcode);
+
+    expect(mockedLookup).toHaveBeenCalledTimes(1);
+    expect(mockedLookup).toHaveBeenCalledWith(PRODUCT.barcode);
   });
 
   it('routes a local catalogue hit straight to food-edit', async () => {

@@ -8,10 +8,15 @@ describe('isValidBarcode', () => {
     expect(isValidBarcode('04210007')).toBe(true);
   });
 
+  it('validates GTIN-14 check digits used by ITF-14 scans', () => {
+    expect(isValidBarcode('14006381333938')).toBe(true);
+  });
+
   it('rejects structurally invalid and mistyped codes', () => {
     expect(isValidBarcode('4006381333932')).toBe(false);
     expect(isValidBarcode('73513536')).toBe(false);
     expect(isValidBarcode('036000291453')).toBe(false);
+    expect(isValidBarcode('14006381333939')).toBe(false);
     expect(isValidBarcode('abc')).toBe(false);
     expect(isValidBarcode('12345')).toBe(false);
   });

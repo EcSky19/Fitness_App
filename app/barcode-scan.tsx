@@ -68,6 +68,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
   const [manualCode, setManualCode] = useState('');
 
   const scanLockedRef = useRef(false);
+  const lastRejectedCodeRef = useRef<string | null>(null);
   const mounted = useRef(true);
   const runId = useRef(0);
 
@@ -82,6 +83,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
   const resetScan = useCallback(() => {
     runId.current += 1;
     scanLockedRef.current = false;
+    lastRejectedCodeRef.current = null;
     setPhase('scanning');
     setBarcode('');
     setProduct(null);
@@ -99,6 +101,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
     async (rawCode: string) => {
       const code = rawCode.trim();
       if (!isValidBarcode(code)) {
+        lastRejectedCodeRef.current = code;
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
         setMessage("That barcode doesn't look valid. Try again or enter it manually.");
         setPhase('scanning');
@@ -106,6 +109,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
         return;
       }
 
+      lastRejectedCodeRef.current = null;
       const current = runId.current + 1;
       runId.current = current;
       setBarcode(code);
@@ -159,6 +163,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
 
   const handleBarcodeScanned = useCallback(
     (result: BarcodeScanningResult) => {
+      if (result.data.trim() === lastRejectedCodeRef.current) return;
       if (scanLockedRef.current || phase !== 'scanning') return;
       scanLockedRef.current = true;
       void handleLookup(result.data).catch((error) => {

@@ -50,10 +50,17 @@ export function normalizeBarcode(code: string): string {
   return digitsOnly(code);
 }
 
+export function gtin13FromGtin14(code: string): string | null {
+  const digits = digitsOnly(code);
+  if (digits.length !== 14 || !allDigits(digits) || !hasGtinCheckDigit(digits)) return null;
+  const payload = digits.slice(1, 13);
+  return `${payload}${gtinCheckDigit(payload)}`;
+}
+
 export function isValidBarcode(code: string): boolean {
   const digits = digitsOnly(code);
   if (!allDigits(digits)) return false;
-  if (digits.length === 8 || digits.length === 12 || digits.length === 13) {
+  if (digits.length === 8 || digits.length === 12 || digits.length === 13 || digits.length === 14) {
     if (digits.length === 8) {
       const expanded = expandUpcE(digits);
       if (expanded && hasGtinCheckDigit(expanded)) return true;

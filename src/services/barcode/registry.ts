@@ -1,6 +1,6 @@
 import type { Food, Result } from '@/types';
 
-import { isValidBarcode, normalizeBarcode } from './barcode';
+import { gtin13FromGtin14, isValidBarcode, normalizeBarcode } from './barcode';
 import { mockBarcodeProvider } from './mockProvider';
 import { openFoodFactsProvider } from './openFoodFactsProvider';
 import type { BarcodeProduct, BarcodeProvider } from './types';
@@ -73,6 +73,11 @@ async function localLookup(barcode: string): Promise<BarcodeProduct | null> {
   return food ? foodToProduct(food, barcode) : null;
 }
 
+function lookupCandidates(barcode: string): string[] {
+  const inner = gtin13FromGtin14(barcode);
+  return inner && inner !== barcode ? [barcode, inner] : [barcode];
+}
+
 export { isValidBarcode } from './barcode';
 export type { BarcodeProduct, BarcodeProvider } from './types';
 
@@ -85,15 +90,23 @@ export type { BarcodeProduct, BarcodeProvider } from './types';
 export async function lookupBarcode(barcode: string): Promise<Result<BarcodeProduct | null>> {
   const normalized = normalizeBarcode(barcode);
   if (!isValidBarcode(normalized)) return { ok: false, error: 'Invalid barcode. Try scanning again.' };
+  const candidates = lookupCandidates(normalized);
 
   try {
-    const local = await localLookup(normalized);
-    if (local) return { ok: true, data: local };
+    for (const candidate of candidates) {
+      const local = await localLookup(candidate);
+      if (local) return { ok: true, data: local };
+    }
   } catch (error) {
     return { ok: false, error: safeLookupError(error, normalized) };
   }
 
-  return getProvider().lookup(normalized);
+  const provider = getProvider();
+  for (const candidate of candidates) {
+    const result = await provider.lookup(candidate);
+    if (!result.ok || result.data) return result;
+  }
+  return { ok: true, data: null };
 }
 
 export function listBarcodeProviders(): Array<{ id: string; label: string }> {

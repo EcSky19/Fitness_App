@@ -17,6 +17,15 @@ jest.mock('@/db/repositories', () => ({
 
 const fetchMock = jest.fn();
 
+function response(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  } as unknown as Response;
+}
+
 beforeAll(() => {
   global.fetch = fetchMock as unknown as typeof fetch;
 });
@@ -108,6 +117,36 @@ describe('barcode registry', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('falls back from GTIN-14 to the inner GTIN-13 for local lookup', async () => {
+    mockGetFoodByBarcode
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'food-1',
+        name: 'Inner cereal',
+        brand: 'Kitchen',
+        per100g: { calories: 380, protein: 9, carbs: 72, fat: 5 },
+        servingSizeG: 40,
+        servingLabel: '40 g',
+        barcode: '4006381333931',
+        source: 'custom',
+        isFavorite: false,
+        usageCount: 0,
+        lastUsedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      });
+
+    const result = await lookupBarcode('14006381333938');
+
+    expect(mockGetFoodByBarcode).toHaveBeenNthCalledWith(1, '14006381333938');
+    expect(mockGetFoodByBarcode).toHaveBeenNthCalledWith(2, '4006381333931');
+    expect(result).toMatchObject({
+      ok: true,
+      data: { barcode: '4006381333931', name: 'Inner cereal', source: 'local' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('uses the selected mock provider after a local miss', async () => {
     mockGetFoodByBarcode.mockResolvedValueOnce(null);
     setBarcodeProvider('mock');
@@ -126,6 +165,17 @@ describe('barcode registry', () => {
     setBarcodeProvider('mock');
 
     await expect(lookupBarcode('00000000')).resolves.toEqual({ ok: true, data: null });
+  });
+
+  it('falls back from GTIN-14 to the inner GTIN-13 remotely and keeps not-found clean', async () => {
+    mockGetFoodByBarcode.mockResolvedValue(null);
+    fetchMock.mockResolvedValue(response(404, 'missing'));
+
+    await expect(lookupBarcode('14006381333938')).resolves.toEqual({ ok: true, data: null });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String((fetchMock.mock.calls[0] as [string, RequestInit])[0])).toContain('14006381333938.json');
+    expect(String((fetchMock.mock.calls[1] as [string, RequestInit])[0])).toContain('4006381333931.json');
   });
 
   it('rejects check-digit failures before local or remote lookup', async () => {
