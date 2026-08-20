@@ -100,12 +100,19 @@ export async function clearAllData(): Promise<void> {
   const accountId = getCurrentAccountId();
   if (!accountId) return;
 
+  // Photos are deleted only after the transaction commits: the file system is
+  // not transactional, so deleting them inside the transaction would orphan a
+  // rolled-back entry's photo if any DELETE failed mid-wipe.
+  const photosToDelete: string[] = [];
+
   await runInTransaction(db, async () => {
     const photoRows = await db.getAllAsync<{ photo_uri: string | null }>(
       'SELECT photo_uri FROM food_entries WHERE account_id = ? AND photo_uri IS NOT NULL;',
       accountId
     );
-    for (const row of photoRows ?? []) deleteFoodPhotoFile(row.photo_uri);
+    for (const row of photoRows ?? []) {
+      if (row.photo_uri) photosToDelete.push(row.photo_uri);
+    }
 
     await db.runAsync('DELETE FROM food_entries WHERE account_id = ?;', accountId);
     await db.runAsync('DELETE FROM recipe_items WHERE account_id = ?;', accountId);
@@ -117,6 +124,9 @@ export async function clearAllData(): Promise<void> {
     await db.runAsync('DELETE FROM profile WHERE account_id = ?;', accountId);
     await db.runAsync('DELETE FROM settings WHERE account_id = ?;', accountId);
   });
+
+  // The wipe committed: now it is safe to delete the photo files.
+  for (const uri of photosToDelete) deleteFoodPhotoFile(uri);
 
   invalidateStore();
 }

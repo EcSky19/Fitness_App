@@ -98,7 +98,13 @@ function buildMacros(nutriments: Record<string, unknown>, servingG: number | nul
   }
 
   const derived = protein * 4 + carbs * 4 + fat * 9;
-  if ((calories === null || calories <= 0) && derived > 0) calories = Math.round(derived);
+  // Same ceiling as a stated figure. Each macro is capped at 100 g/100 g, so an
+  // uncapped derived value could reach 1700 kcal/100 g and quietly exceed the
+  // very limit `MAX_CALORIES_100G` enforces. No real food comes close (pure oil
+  // is ~884), so this only ever trims physically impossible source data.
+  if ((calories === null || calories <= 0) && derived > 0) {
+    calories = Math.min(MAX_CALORIES_100G, Math.round(derived));
+  }
   if (calories === null) calories = 0;
 
   const macros: Macros = { calories, protein, carbs, fat };

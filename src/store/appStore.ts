@@ -39,6 +39,14 @@ export interface AppState {
    * finds out immediately rather than discovering the loss later.
    */
   storageAvailable: boolean;
+  /**
+   * The calendar date this store last treated as "today".
+   *
+   * Needed to tell "the user is looking at today" apart from "the user
+   * deliberately stepped back to this date", which look identical once the day
+   * rolls over. See `syncToday()`.
+   */
+  lastKnownToday: ISODate;
   /** Incremented after any write; screens depend on it to re-query. */
   dataVersion: number;
   bootstrap: () => Promise<void>;
@@ -47,6 +55,21 @@ export interface AppState {
   setGoal: (g: Goal | null) => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
   invalidate: () => void; // dataVersion++
+  /**
+   * Re-checks the wall clock and advances `selectedDate` when the day changed.
+   *
+   * `selectedDate` is seeded once, when this module is first evaluated. Phones
+   * keep JS state alive for a backgrounded app for days, so without this the
+   * date silently stays on the day the app was launched: someone who opens the
+   * app the next morning would log breakfast into *yesterday's* diary, leaving
+   * today empty and yesterday overstated.
+   *
+   * Only moves the date when the user was actually sitting on today. If they
+   * had stepped back to review an earlier day, their place is kept.
+   *
+   * Returns true when the visible date moved.
+   */
+  syncToday: () => boolean;
   /**
    * Drops every cached row belonging to the previously signed-in account.
    *
@@ -146,6 +169,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selectedDate: todayISO(),
   isReady: false,
   storageAvailable: true,
+  lastKnownToday: todayISO(),
   dataVersion: 0,
 
   bootstrap: async () => {
@@ -195,12 +219,34 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   invalidate: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 
+  syncToday: () => {
+    const now = todayISO();
+    const { lastKnownToday, selectedDate } = get();
+    if (now === lastKnownToday) return false;
+
+    // Also covers the clock moving backwards (travel across a date line, a
+    // manual clock change): whatever the wall clock now says is today wins.
+    const wasViewingToday = selectedDate === lastKnownToday;
+    if (!wasViewingToday) {
+      set({ lastKnownToday: now });
+      return false;
+    }
+
+    set((state) => ({
+      lastKnownToday: now,
+      selectedDate: now,
+      dataVersion: state.dataVersion + 1,
+    }));
+    return true;
+  },
+
   reset: () =>
     set((state) => ({
       profile: null,
       goal: null,
       settings: { ...DEFAULT_SETTINGS },
       selectedDate: todayISO(),
+      lastKnownToday: todayISO(),
       dataVersion: state.dataVersion + 1,
       // Clearing `isReady` is what makes the reset atomic from the router's
       // point of view. `authStore` resets and only then awaits `bootstrap()`,

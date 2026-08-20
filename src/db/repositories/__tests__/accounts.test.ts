@@ -10,6 +10,7 @@ import {
   initDatabase,
   newId,
   nowISO,
+  runInTransaction,
   type Database,
 } from '@/db/client';
 import {
@@ -585,6 +586,49 @@ describe('accounts repository — claimLegacyData', () => {
   it('is a no-op without an account id', async () => {
     await expect(claimLegacyData('')).resolves.toBe(0);
   });
+
+  it('adopts the legacy diary even while another transaction is open', async () => {
+    const first = await createAccount(account({ password: await pw('a good password') }));
+    const db = await getDb();
+
+    // Hold a serialized transaction open so the claim is forced to overlap it.
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    const blocker = runInTransaction(db, async () => {
+      markEntered();
+      await gate;
+    });
+    await entered; // the blocker's BEGIN has executed and is still open
+
+    // A raw `withTransactionAsync` here throws "cannot start a transaction
+    // within a transaction"; a serialized claim queues behind the blocker.
+    const claimOutcome = claimLegacyData(first.id).then(
+      (claimed) => ({ ok: true as const, claimed }),
+      (error) => ({ ok: false as const, error })
+    );
+    // Give a queue-bypassing implementation time to reach and fail at its BEGIN.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    releaseGate();
+    await blocker;
+    const outcome = await claimOutcome;
+
+    expect(outcome).toMatchObject({ ok: true });
+    if (outcome.ok) expect(outcome.claimed).toBe(7);
+
+    // The pre-auth diary was actually adopted rather than lost to a failed claim.
+    const profile = await query<{ account_id: string }>(
+      'SELECT account_id FROM profile WHERE id = ?;',
+      'me'
+    );
+    expect(profile[0]?.account_id).toBe(first.id);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -668,8 +712,8 @@ describe('schema migration 2', () => {
   }
 
   it('is the latest migration and matches SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(4);
-    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3, 4]);
+    expect(SCHEMA_VERSION).toBe(5);
+    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('upgrades a v1 database that already has data, without losing a row', async () => {
@@ -680,7 +724,7 @@ describe('schema migration 2', () => {
     const versions = await db.getAllAsync<{ version: number }>(
       'SELECT version FROM _migrations ORDER BY version;'
     );
-    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4]);
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5]);
 
     // `profile` and `settings` are rebuilt by migration 3 with a NOT NULL
     // scoping column, so their unclaimed marker is '' rather than NULL.
@@ -944,5 +988,64 @@ describe('schema migration 2', () => {
       "SELECT id FROM foods WHERE barcode = '0123456789';"
     );
     expect(foods.map((f) => f.id)).toEqual(['f1']); // oldest wins
+  });
+
+  it('scopes external_id per account when upgrading a v1 database that already synced workouts', async () => {
+    const db = await openLegacyV1Database();
+    // A legacy synced workout written before accounts existed.
+    await db.runAsync(
+      `INSERT INTO exercise_entries (id, date, name, category, duration_min, calories_burned,
+         source, external_id, logged_at, created_at, updated_at)
+       VALUES ('legacy-hk', '2026-01-02', 'Run', 'cardio', 30, 300, 'healthkit', 'hk-legacy',
+         '2026-01-02T09:00:00.000Z', '2026-01-02T09:00:00.000Z', '2026-01-02T09:00:00.000Z');`
+    );
+
+    await initDatabase();
+
+    // The old global unique index is gone; the per-account one replaces it.
+    const indexes = await db.getAllAsync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'index';"
+    );
+    const names = indexes.map((i) => i.name);
+    expect(names).toContain('idx_exercise_entries_account_external');
+    expect(names).not.toContain('idx_exercise_entries_external_id');
+
+    // The legacy workout survived the upgrade.
+    await expect(
+      db.getFirstAsync<{ id: string }>(
+        "SELECT id FROM exercise_entries WHERE external_id = 'hk-legacy';"
+      )
+    ).resolves.toMatchObject({ id: 'legacy-hk' });
+
+    const now = '2026-01-03T09:00:00.000Z';
+    for (const id of ['acc-1', 'acc-2']) {
+      await db.runAsync(
+        `INSERT INTO accounts (id, email, display_name, password_hash, password_salt,
+           password_iterations, password_algorithm, created_at, updated_at)
+         VALUES (?, ?, 'A', 'h', 's', 10, 'sha256-iter-v5', ?, ?);`,
+        id,
+        `${id}@x.com`,
+        now,
+        now
+      );
+    }
+    const insertWorkout = async (id: string, accountId: string): Promise<void> => {
+      await db.runAsync(
+        `INSERT INTO exercise_entries (id, date, name, category, duration_min, calories_burned,
+           source, external_id, logged_at, created_at, updated_at, account_id)
+         VALUES (?, '2026-03-01', 'Run', 'cardio', 30, 300, 'healthkit', 'hk-shared', ?, ?, ?, ?);`,
+        id,
+        now,
+        now,
+        now,
+        accountId
+      );
+    };
+
+    // Two accounts may each hold the same workout uuid...
+    await expect(insertWorkout('x1', 'acc-1')).resolves.toBeUndefined();
+    await expect(insertWorkout('x2', 'acc-2')).resolves.toBeUndefined();
+    // ...but one account still cannot duplicate it.
+    await expect(insertWorkout('x3', 'acc-1')).rejects.toThrow(/UNIQUE/i);
   });
 });

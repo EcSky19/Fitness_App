@@ -639,12 +639,23 @@ async function visibleFoodExists(db: Db, foodId: ID, accountId: ID): Promise<boo
   return Boolean(row);
 }
 
-async function clearAccountData(db: Db, accountId: ID): Promise<void> {
+/**
+ * Deletes every row scoped to `accountId` inside the caller's transaction.
+ *
+ * Photo files are NOT deleted here: the file system is not transactional, so a
+ * mid-import failure would roll the rows back while their photos were already
+ * gone, leaving restored entries pointing at deleted files. The URIs are
+ * collected into `photoSink` instead and deleted by the caller ONLY after the
+ * transaction commits.
+ */
+async function clearAccountData(db: Db, accountId: ID, photoSink: string[]): Promise<void> {
   const photoRows = await db.getAllAsync<{ photo_uri: string | null }>(
     'SELECT photo_uri FROM food_entries WHERE account_id = ? AND photo_uri IS NOT NULL;',
     accountId
   );
-  for (const row of photoRows ?? []) deleteFoodPhotoFile(row.photo_uri);
+  for (const row of photoRows ?? []) {
+    if (row.photo_uri) photoSink.push(row.photo_uri);
+  }
 
   await db.runAsync('DELETE FROM food_entries WHERE account_id = ?;', accountId);
   await db.runAsync('DELETE FROM recipe_items WHERE account_id = ?;', accountId);
@@ -735,9 +746,12 @@ export async function importAllData(
   const warnings: string[] = [];
   const foodIdMap = new Map<ID, ID>();
   const recipeIdMap = new Map<ID, ID>();
+  // Photos of rows cleared in replace mode; deleted only after the transaction
+  // commits so a rolled-back import never orphans a restored entry's photo.
+  const photosToDelete: string[] = [];
 
   await runInTransaction(db, async () => {
-    if (mode === 'replace') await clearAccountData(db, accountId);
+    if (mode === 'replace') await clearAccountData(db, accountId, photosToDelete);
 
     const profile = parsed.profile ? parseProfile(parsed.profile) : null;
     if (parsed.profile && !profile) {
@@ -893,8 +907,9 @@ export async function importAllData(
       }
       if (entry.externalId) {
         const existingExternal = await db.getFirstAsync<{ id: string }>(
-          'SELECT id FROM exercise_entries WHERE external_id = ? LIMIT 1;',
-          entry.externalId
+          'SELECT id FROM exercise_entries WHERE external_id = ? AND account_id = ? LIMIT 1;',
+          entry.externalId,
+          accountId
         );
         if (existingExternal) {
           counts.exerciseEntries.skipped += 1;
@@ -962,6 +977,9 @@ export async function importAllData(
       counts.settings.imported += 1;
     }
   });
+
+  // The import committed: now it is safe to delete the replaced photos.
+  for (const uri of photosToDelete) deleteFoodPhotoFile(uri);
 
   invalidateStore();
   return { mode, counts, warnings };

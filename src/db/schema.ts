@@ -13,7 +13,7 @@
 
 export const DATABASE_NAME = 'macrotrack.db';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Canonical table names — use these instead of string literals. */
 export const TABLES = {
@@ -682,9 +682,53 @@ CREATE INDEX IF NOT EXISTS idx_recipes_account_favorite ON recipes(account_id, i
 CREATE INDEX IF NOT EXISTS idx_recipe_items_account ON recipe_items(account_id);
 `;
 
+/**
+ * Migration 5 — scope the `exercise_entries.external_id` uniqueness per account.
+ *
+ * Migration 1 created `idx_exercise_entries_external_id` as a GLOBAL partial
+ * unique index (`ON exercise_entries(external_id) WHERE external_id IS NOT
+ * NULL`), back when the app had no accounts. Migration 2 added `account_id` but
+ * never revisited that index, so the "one row per external workout" rule stayed
+ * device-wide instead of per-account.
+ *
+ * ## The bug this fixes
+ * Two accounts on one device sync from the SAME HealthKit / Health Connect
+ * store, so they see the SAME workout uuids. When the second account synced (or
+ * imported a backup containing) a workout the first account already had,
+ * `upsertExternalExercise`'s scoped INSERT — correctly finding no row of its own
+ * to update — hit the global index and threw `UNIQUE constraint failed`,
+ * crashing the sync/import. It also meant account B could probe whether account
+ * A had a given workout id.
+ *
+ * ## The fix
+ * Replace the global index with one keyed on `(COALESCE(account_id, ''),
+ * external_id)`, matching how migration 3 scoped `weight_logs` and `foods`.
+ * `COALESCE` keeps NULL (legacy / unclaimed) rows constrained together instead
+ * of SQLite treating each NULL as distinct. The index stays partial
+ * (`WHERE external_id IS NOT NULL`) so the many manual, external-id-less entries
+ * are unaffected.
+ *
+ * De-duplication runs first (newest `rowid` wins, matching
+ * `upsertExternalExercise`'s "refresh in place") so the index builds even if a
+ * database somehow already holds cross-account duplicates; on a database that
+ * still had the old global index this deletes nothing.
+ */
+const MIGRATION_005 = `
+DELETE FROM exercise_entries WHERE external_id IS NOT NULL AND rowid NOT IN (
+  SELECT MAX(rowid) FROM exercise_entries WHERE external_id IS NOT NULL
+  GROUP BY COALESCE(account_id, ''), external_id
+);
+
+DROP INDEX IF EXISTS idx_exercise_entries_external_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exercise_entries_account_external
+  ON exercise_entries(COALESCE(account_id, ''), external_id) WHERE external_id IS NOT NULL;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
   { version: 3, sql: MIGRATION_003 },
   { version: 4, sql: MIGRATION_004 },
+  { version: 5, sql: MIGRATION_005 },
 ];

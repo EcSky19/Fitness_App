@@ -329,4 +329,63 @@ describe('importAllData', () => {
     const customFoods = (await searchFoods('Rice')).filter((food: Food) => food.source !== 'seed');
     expect(customFoods).toHaveLength(0);
   });
+
+  it('keeps existing photo files when a replace import rolls back', async () => {
+    // An existing entry whose photo lives in the account's private folder.
+    const entry = await addFoodEntry({
+      date: '2026-05-01',
+      mealType: 'dinner',
+      name: 'Photo meal',
+      quantity: 1,
+      unit: 'serving',
+      gramsTotal: 100,
+      macros: MACROS,
+      photoUri: 'file:///camera/original.jpg',
+    });
+    expect(entry.photoUri).toContain('/food-entry-photos/account-a/');
+
+    // A valid dump (contains a food + a food entry) to restore in replace mode.
+    const dump = await seedEverything();
+
+    const db = await getDb();
+    const originalRunAsync: Database['runAsync'] = db.runAsync.bind(db);
+    // Fail on the first re-inserted food entry — AFTER clearAccountData has run.
+    db.runAsync = (async (...args: Parameters<Database['runAsync']>) => {
+      const [sql, ...params] = args;
+      if (sql.includes('INSERT INTO food_entries')) throw new Error('injected failure');
+      return originalRunAsync(sql, ...params);
+    }) as Database['runAsync'];
+
+    mockFileDelete.mockClear();
+    await expect(importAllData(dump, { mode: 'replace' })).rejects.toThrow(/injected failure/);
+    db.runAsync = originalRunAsync;
+
+    // The DB rolled back, so the entry — and its photo reference — still exist...
+    await expect(getFoodEntry(entry.id)).resolves.toMatchObject({ photoUri: entry.photoUri });
+    // ...therefore the photo file must NOT have been deleted by the failed clear.
+    expect(mockFileDelete).not.toHaveBeenCalledWith(entry.photoUri);
+  });
+
+  it('deletes replaced photo files after a successful replace import', async () => {
+    // Build the restore dump FIRST so the photo entry below is NOT part of it.
+    const dump = await seedEverything();
+    const entry = await addFoodEntry({
+      date: '2026-05-02',
+      mealType: 'dinner',
+      name: 'Orphan photo meal',
+      quantity: 1,
+      unit: 'serving',
+      gramsTotal: 100,
+      macros: MACROS,
+      photoUri: 'file:///camera/original.jpg',
+    });
+
+    mockFileDelete.mockClear();
+    await importAllData(dump, { mode: 'replace' });
+
+    // The entry is absent from the dump, so replace wiped it and its now-orphaned
+    // photo file was cleaned up (after the transaction committed).
+    await expect(getFoodEntry(entry.id)).resolves.toBeNull();
+    expect(mockFileDelete).toHaveBeenCalledWith(entry.photoUri);
+  });
 });

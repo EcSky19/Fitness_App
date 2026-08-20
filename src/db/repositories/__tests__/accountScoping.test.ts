@@ -45,6 +45,7 @@ jest.mock('expo-file-system', () => {
 });
 
 import { getDb } from '@/db/client';
+import type { Database } from '@/db/client';
 import { claimLegacyData } from '@/db/repositories/accounts';
 import {
   addExerciseEntry,
@@ -332,6 +333,37 @@ describe('repository account scoping', () => {
     mockFileDelete.mockClear();
     await clearAllData();
     expect(mockFileDelete).toHaveBeenCalledWith(clearEntry.photoUri);
+  });
+
+  it('keeps photo files when clearAllData rolls back mid-transaction', async () => {
+    const entry = await addFoodEntry({
+      date: '2026-08-21',
+      mealType: 'dinner',
+      name: 'Photo meal 3',
+      quantity: 1,
+      unit: 'serving',
+      gramsTotal: 100,
+      macros,
+      photoUri: 'file:///camera/meal-3.jpg',
+    });
+
+    const db = await getDb();
+    const originalRunAsync: Database['runAsync'] = db.runAsync.bind(db);
+    // Interrupt the wipe after the photo scan but on the first DELETE.
+    db.runAsync = (async (...args: Parameters<Database['runAsync']>) => {
+      const [sql, ...params] = args;
+      if (sql.includes('DELETE FROM food_entries')) throw new Error('injected failure');
+      return originalRunAsync(sql, ...params);
+    }) as Database['runAsync'];
+
+    mockFileDelete.mockClear();
+    await expect(clearAllData()).rejects.toThrow(/injected failure/);
+    db.runAsync = originalRunAsync;
+
+    // The DB rolled back, so the entry still references its photo...
+    await expect(getFoodEntry(entry.id)).resolves.toMatchObject({ photoUri: entry.photoUri });
+    // ...so the photo file must NOT have been deleted by the failed wipe.
+    expect(mockFileDelete).not.toHaveBeenCalledWith(entry.photoUri);
   });
 
   it('returns empty signed-out results while still exposing shared seed foods', async () => {

@@ -181,6 +181,20 @@ describe('hostile values', () => {
     expect(result.warnings.join(' ')).toMatch(/implausible/i);
   });
 
+  it('caps calories derived from macros at the same ceiling as a stated figure', () => {
+    // Each macro is individually under MAX_MACRO, so it survives clamping, but
+    // their energy sum (4·p + 4·c + 9·f) is not. When `calories` is absent the
+    // parser derives it from the macros — and that derived figure must be held
+    // to the very ceiling MAX_MACRO exists to enforce, or a single garbled item
+    // smuggles a ~1.5M kcal number straight into the day's totals.
+    const raw = JSON.stringify({
+      items: [{ ...base, name: 'Cap bypass', calories: 0, protein: 90_000, carbs: 90_000, fat: 90_000 }],
+    });
+    const result = parseVisionJson(raw, 'food_photo');
+
+    expect(result.items[0]?.macros.calories).toBeLessThanOrEqual(100_000);
+  });
+
   it('survives arrays where numbers belong, and nulls where objects belong', () => {
     const raw = '{"items":[null,{"name":"B","calories":[10],"protein":1,"carbs":1,"fat":0}]}';
     const result = parseVisionJson(raw, 'food_photo');

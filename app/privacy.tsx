@@ -12,9 +12,11 @@ interface PolicySection {
   blocks: PolicyBlock[];
 }
 
-const LAST_UPDATED = 'TODO: effective date';
-const RESPONSIBLE_ENTITY = 'TODO: developer or company name';
-const CONTACT = 'TODO: contact email or support URL';
+// Replace these with the real publisher identity before store submission; see
+// the pre-submission checklist in DEPLOYMENT.md.
+const LAST_UPDATED = '2026-08-20';
+const RESPONSIBLE_ENTITY = 'The MacroTrack developer';
+const CONTACT = 'support@macrotrack.app';
 
 const POLICY_SECTIONS: PolicySection[] = [
   {

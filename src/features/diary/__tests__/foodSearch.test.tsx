@@ -286,6 +286,24 @@ describe('food search screen', () => {
     );
   });
 
+  it('creates only one custom food when Save is double-tapped', async () => {
+    repos.upsertFood.mockResolvedValue({ id: 'new-food' });
+    await renderScreen();
+
+    fireEvent.press(screen.getByTestId('food-search-create-custom'));
+    fireEvent.changeText(screen.getByTestId('custom-food-name'), 'Homemade granola');
+    fireEvent.changeText(screen.getByTestId('custom-food-serving-size'), '50');
+    fireEvent.changeText(screen.getByTestId('custom-food-calories'), '220');
+
+    const save = screen.getByTestId('custom-food-save');
+    await act(async () => {
+      fireEvent.press(save);
+      fireEvent.press(save);
+    });
+
+    expect(repos.upsertFood).toHaveBeenCalledTimes(1);
+  });
+
   it('blocks saving a custom food without a name', async () => {
     await renderScreen();
 

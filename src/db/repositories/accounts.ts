@@ -375,9 +375,15 @@ export async function claimLegacyData(accountId: ID): Promise<number> {
   const db = await ensureReady();
   if (!accountId) return 0;
 
-  let claimed = 0;
+  // Serialized like every other multi-statement write: a raw
+  // `db.withTransactionAsync` here shares the connection with the rest of the
+  // app and throws "cannot start a transaction within a transaction" whenever it
+  // overlaps another transaction (e.g. the bootstrap `seedFoods`). A thrown
+  // claim during the FIRST sign-up would leave the pre-auth diary unclaimed
+  // forever, because later accounts never re-run the claim.
+  const claimed = await runInTransaction(db, async () => {
+    let count = 0;
 
-  await db.withTransactionAsync(async () => {
     // At most one profile row per account (profile.account_id is UNIQUE), so
     // claim the oldest orphan and only when this account has none yet.
     const profileResult = await db.runAsync(
@@ -389,7 +395,7 @@ export async function claimLegacyData(accountId: ID): Promise<number> {
       accountId,
       accountId
     );
-    claimed += profileResult?.changes ?? 0;
+    count += profileResult?.changes ?? 0;
 
     for (const table of LEGACY_CLAIMABLE_TABLES) {
       if (table === 'profile') continue;
@@ -397,7 +403,7 @@ export async function claimLegacyData(accountId: ID): Promise<number> {
         `UPDATE ${table} SET account_id = ? WHERE ${UNCLAIMED_ACCOUNT_SQL};`,
         accountId
       );
-      claimed += result?.changes ?? 0;
+      count += result?.changes ?? 0;
     }
 
     // Custom / scanned / vision foods only — `source = 'seed'` stays shared.
@@ -405,7 +411,9 @@ export async function claimLegacyData(accountId: ID): Promise<number> {
       `UPDATE foods SET account_id = ? WHERE ${UNCLAIMED_ACCOUNT_SQL} AND source <> 'seed';`,
       accountId
     );
-    claimed += foodsResult?.changes ?? 0;
+    count += foodsResult?.changes ?? 0;
+
+    return count;
   });
 
   if (claimed > 0) invalidateStore();

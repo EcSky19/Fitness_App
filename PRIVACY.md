@@ -1,10 +1,10 @@
 # MacroTrack Privacy Policy
 
-Last updated: TODO: effective date
+Last updated: 2026-08-20
 
-Entity responsible for this app: TODO: developer or company name
+Entity responsible for this app: The MacroTrack developer
 
-Contact: TODO: contact email or support URL
+Contact: support@macrotrack.app
 
 ## Overview
 
@@ -86,13 +86,13 @@ Because MacroTrack does not run a backend account service, deleting local data r
 
 ## Your choices and rights
 
-Depending on your location, you may have rights to access, export, correct, or delete personal data. MacroTrack supports local export and deletion in the app. For questions or requests that cannot be handled in-app, contact: TODO: contact email or support URL.
+Depending on your location, you may have rights to access, export, correct, or delete personal data. MacroTrack supports local export and deletion in the app. For questions or requests that cannot be handled in-app, contact: support@macrotrack.app.
 
 You control optional permissions such as camera, photo library, and Health access through your device settings. You can also remove saved AI provider API keys in the app.
 
 ## Children's privacy
 
-MacroTrack is not intended for children under 13, and it does not knowingly collect data from children. If you believe a child has provided personal information in MacroTrack, delete the local account/data from the device and contact: TODO: contact email or support URL.
+MacroTrack is not intended for children under 13, and it does not knowingly collect data from children. If you believe a child has provided personal information in MacroTrack, delete the local account/data from the device and contact: support@macrotrack.app.
 
 ## Changes to this policy
 

@@ -125,6 +125,39 @@ describe('parseOpenFoodFactsProduct hostile inputs', () => {
     expect(parsed?.per100g).toMatchObject({ calories: 18, protein: 0, carbs: 0, fat: 2 });
   });
 
+  it('holds calories derived from macros to the same ceiling as a stated figure', () => {
+    // Each macro is individually within the 100 g/100 g cap so none is rejected,
+    // but their combined energy (4+4+9 per gram) is 1700 kcal/100 g — above the
+    // 1200 ceiling a stated `energy-kcal_100g` would have been held to.
+    const parsed = parseOpenFoodFactsProduct(
+      product({
+        nutriments: {
+          proteins_100g: 100,
+          carbohydrates_100g: 100,
+          fat_100g: 100,
+        },
+      }),
+      BARCODE
+    );
+
+    expect(parsed?.per100g.calories).toBeLessThanOrEqual(1200);
+  });
+
+  it('still derives calories normally for a plausible product', () => {
+    const parsed = parseOpenFoodFactsProduct(
+      product({
+        nutriments: {
+          proteins_100g: 5,
+          carbohydrates_100g: 10,
+          fat_100g: 2,
+        },
+      }),
+      BARCODE
+    );
+
+    expect(parsed?.per100g.calories).toBe(78);
+  });
+
   it('returns null for Open Food Facts status 0', () => {
     expect(parseOpenFoodFactsProduct({ status: 0 }, BARCODE)).toBeNull();
   });

@@ -469,7 +469,11 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
 
   const derived = protein * 4 + carbs * 4 + fat * 9;
   if (calories <= 0 && derived > 0) {
-    calories = Math.round(derived);
+    // Hold a derived figure to the same ceiling as a stated one: the macros are
+    // each capped at MAX_MACRO, but their energy sum can be many times larger,
+    // and an uncapped value here would poison day totals exactly as a raw
+    // out-of-range `calories` field would.
+    calories = Math.min(MAX_MACRO, Math.round(derived));
     warnings.push(`Calories missing for ${name}; derived from macros.`);
   } else if (calories > 0 && derived > 0) {
     // Symmetric: the same absolute gap warns whichever figure is the larger one.

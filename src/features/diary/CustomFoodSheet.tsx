@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { upsertFood } from '@/db/repositories';
@@ -44,9 +44,11 @@ export function CustomFoodSheet({
   const [fat, setFat] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!visible) return;
+    savingRef.current = false;
     setName(initialName ?? '');
     setBrand('');
     setServingSizeG(100);
@@ -65,7 +67,10 @@ export function CustomFoodSheet({
   const canSave = !nameError && !gramsError && !saving;
 
   const handleSave = useCallback(async () => {
-    if (!canSave) return;
+    // `saving` only disables the button on the next render, so a double tap
+    // delivered inside one batch has to be rejected synchronously.
+    if (!canSave || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -95,6 +100,7 @@ export function CustomFoodSheet({
     } catch {
       setError('Could not save this food. Please try again.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [basis, brand, calories, canSave, carbs, fat, grams, name, onCreated, protein, servingLabel]);

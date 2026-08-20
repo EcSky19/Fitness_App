@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, type ReactElement } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,6 +7,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 
 import { useAppStore } from '@/store/appStore';
 import { useAuthStore } from '@/store/authStore';
+import { useDayRollover } from '@/store/useDayRollover';
 // Imported from the module directly, not the `@/ui` barrel: the boundary must
 // stay usable even if the UI kit or theme is what crashed.
 import { ErrorBoundary } from '@/ui/components/ErrorBoundary';
@@ -107,12 +108,30 @@ export default function RootLayout() {
 
   useAuthRedirect(isReady, isSignedIn);
   useFirstRunRedirect(isReady, isSignedIn, session?.accountId ?? null);
+  // Without this the diary stays on the day the app was launched, so food
+  // logged the next morning would be filed under yesterday.
+  useDayRollover();
+
+  const router = useRouter();
+  // "Try again" on its own just re-renders the identical tree, so a crash that
+  // reproduces every time would trap the user in a loop with no way out. The
+  // boundary clears its own state after this runs, so defer the navigation to
+  // the next tick -- the Stack has to be mounted again before it can navigate.
+  const handleBoundaryReset = useCallback(() => {
+    setTimeout(() => {
+      try {
+        router.replace(isSignedIn ? '/(tabs)' : '/(auth)/sign-in');
+      } catch {
+        // Best effort: the boundary has already cleared itself either way.
+      }
+    }, 0);
+  }, [isSignedIn, router]);
 
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
-        <ErrorBoundary>
+        <ErrorBoundary onReset={handleBoundaryReset}>
           <View style={styles.root}>
             <StorageBanner />
             {readyToRender ? (

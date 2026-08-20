@@ -178,10 +178,17 @@ burn in this release.
 - [ ] `npx tsc --noEmit` passes.
 - [ ] `npx expo export -p android` succeeds.
 - [x] Health Connect release blocker is resolved (deferred; permissions removed).
-- [ ] Store assets are validated: iOS icon is `1024x1024` opaque RGB/no alpha; Android adaptive foreground/background are `1024x1024` square PNGs; no unintended alpha-bearing asset is used where stores require opacity.
+- [ ] Store assets are validated: iOS icon is `1024x1024` opaque RGB with no alpha channel (currently correct). Android adaptive icon layers only ever render at `432x432` (108dp at xxxhdpi), so the existing `512x512` foreground/background are already sufficient — do not upscale them, which adds no detail. Keep critical artwork inside the central `288x288` safe zone. The `512x512` Play Store listing icon is uploaded separately in the Play Console and does not come from `app.json`.
 - [ ] Splash screen checked on preview/release Android and iOS builds.
 - [ ] `expo.version` bumped for any native runtime change.
 - [ ] EAS project initialized; no guessed `owner` or `projectId`.
 - [ ] Apple and Google credentials configured.
 - [ ] Submit placeholders replaced with real values.
 - [ ] Privacy policy URL and store listings are complete and accurate.
+- [ ] **The privacy policy names a real publisher and a monitored contact address.**
+      `PRIVACY.md` and `app/privacy.tsx` currently ship the stand-in values
+      `The MacroTrack developer` / `support@macrotrack.app` with an effective date of
+      `2026-08-20`. Replace all three in both files with the real publisher identity —
+      the two must agree, because a reviewer compares the hosted policy against the
+      in-app screen. `app/__tests__/privacyPolicy.test.ts` only blocks literal `TODO:`
+      markers, so it will *not* catch these stand-ins for you.
