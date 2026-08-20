@@ -6,7 +6,7 @@
  */
 import { newId, nowISO, runInTransaction, todayISO } from '@/db/client';
 import { ACCOUNT_ID_COLUMN, COLUMNS } from '@/db/schema';
-import type { FoodEntry, ID, ISODate } from '@/types';
+import type { FoodEntry, ID, ISODate, MealType } from '@/types';
 import {
   currentAccountScope,
   EMPTY_MACROS,
@@ -77,9 +77,13 @@ function buildEntry(input: NewFoodEntry, now: string): FoodEntry {
   };
 }
 
-async function visibleFoodIdOrNull(foodId: ID | null, accountId: ID): Promise<ID | null> {
+async function visibleFoodIdOrNull(
+  foodId: ID | null,
+  accountId: ID,
+  dbArg?: Awaited<ReturnType<typeof ensureReady>>
+): Promise<ID | null> {
   if (!foodId) return null;
-  const db = await ensureReady();
+  const db = dbArg ?? (await ensureReady());
   const row = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM foods
      WHERE id = ? AND (account_id = ? OR (account_id IS NULL AND source = 'seed'))
@@ -88,6 +92,34 @@ async function visibleFoodIdOrNull(foodId: ID | null, accountId: ID): Promise<ID
     accountId
   );
   return row ? foodId : null;
+}
+
+export async function prepareFoodEntriesForInsert(
+  inputs: NewFoodEntry[],
+  accountId: ID,
+  now: string,
+  dbArg?: Awaited<ReturnType<typeof ensureReady>>
+): Promise<FoodEntry[]> {
+  const db = dbArg ?? (await ensureReady());
+  return Promise.all(inputs.map(async (input) => {
+    const entry = buildEntry(input, now);
+    entry.foodId = await visibleFoodIdOrNull(entry.foodId, accountId, db);
+    entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId);
+    return entry;
+  }));
+}
+
+export async function insertPreparedFoodEntries(
+  db: Awaited<ReturnType<typeof ensureReady>>,
+  entries: FoodEntry[],
+  accountId: ID
+): Promise<void> {
+  for (const entry of entries) {
+    await db.runAsync(
+      `INSERT INTO food_entries (${ENTRY_INSERT_COLUMNS.join(', ')}) VALUES (${ENTRY_PLACEHOLDERS});`,
+      ...entryValues(foodEntryToRow(entry), accountId)
+    );
+  }
 }
 
 /** All entries logged on `date`, in logging order. */
@@ -161,20 +193,10 @@ export async function addFoodEntries(inputs: NewFoodEntry[]): Promise<FoodEntry[
   if (!inputs || inputs.length === 0) return [];
 
   const now = nowISO();
-  const entries = await Promise.all(inputs.map(async (input) => {
-    const entry = buildEntry(input, now);
-    entry.foodId = await visibleFoodIdOrNull(entry.foodId, accountId);
-    entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId);
-    return entry;
-  }));
+  const entries = await prepareFoodEntriesForInsert(inputs, accountId, now, db);
 
   await runInTransaction(db, async () => {
-    for (const entry of entries) {
-      await db.runAsync(
-        `INSERT INTO food_entries (${ENTRY_INSERT_COLUMNS.join(', ')}) VALUES (${ENTRY_PLACEHOLDERS});`,
-        ...entryValues(foodEntryToRow(entry), accountId)
-      );
-    }
+    await insertPreparedFoodEntries(db, entries, accountId);
   });
 
   invalidateStore();
@@ -257,4 +279,51 @@ export async function deleteFoodEntry(id: ID): Promise<void> {
   deleteFoodPhotoFile(row?.photo_uri);
   await db.runAsync('DELETE FROM food_entries WHERE id = ? AND account_id = ?;', id, accountId);
   invalidateStore();
+}
+
+export async function repeatEntries(input: {
+  entryIds: ID[];
+  date: ISODate;
+  mealType?: MealType;
+}): Promise<FoodEntry[]> {
+  const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return [];
+  const ids = Array.isArray(input.entryIds) ? input.entryIds.filter(Boolean) : [];
+  if (ids.length === 0) return [];
+
+  let created: FoodEntry[] = [];
+  await runInTransaction(db, async () => {
+    const copies: NewFoodEntry[] = [];
+    for (const id of ids) {
+      const row = await db.getFirstAsync<FoodEntryRow>(
+        `SELECT ${ENTRY_COLUMNS} FROM food_entries WHERE id = ? AND account_id = ? LIMIT 1;`,
+        id,
+        accountId
+      );
+      if (!row) continue;
+      const entry = rowToFoodEntry(row);
+      copies.push({
+        date: input.date,
+        mealType: input.mealType ?? entry.mealType,
+        foodId: entry.foodId,
+        name: entry.name,
+        brand: entry.brand,
+        quantity: entry.quantity,
+        unit: entry.unit,
+        servingLabel: entry.servingLabel,
+        gramsTotal: entry.gramsTotal,
+        macros: entry.macros,
+        photoUri: entry.photoUri,
+        source: entry.source,
+        visionConfidence: entry.visionConfidence,
+        wasEdited: entry.wasEdited,
+      });
+    }
+    created = await prepareFoodEntriesForInsert(copies, accountId, nowISO(), db);
+    await insertPreparedFoodEntries(db, created, accountId);
+  });
+
+  if (created.length > 0) invalidateStore();
+  return created;
 }

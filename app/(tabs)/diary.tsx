@@ -1,26 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
-  addFoodEntries,
-  addFoodEntry,
+  createRecipeFromEntries,
   deleteFoodEntry,
   getActiveGoal,
   listEntriesByDate,
   listExercisesByDate,
+  logRecipe,
+  repeatEntries,
 } from '@/db/repositories';
 import { addDaysISO, buildDailySummary } from '@/domain';
 import { DayTotalsHeader } from '@/features/diary/DayTotalsHeader';
 import { EntryActionSheet } from '@/features/diary/EntryActionSheet';
 import { MealSection } from '@/features/diary/MealSection';
-import type { NewFoodEntry } from '@/features/diary/useEntryDraft';
+import { RecipePickerMount } from '@/features/diary/RecipePickerMount';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useAppStore } from '@/store/appStore';
-import { DateStepper, Divider, EmptyState, ListRow, Screen, Sheet, useTheme } from '@/ui';
+import {
+  Button,
+  DateStepper,
+  Divider,
+  EmptyState,
+  ListRow,
+  Screen,
+  Sheet,
+  TextField,
+  useTheme,
+} from '@/ui';
 import { MEAL_LABELS, MEAL_TYPES } from '@/types/constants';
-import type { ExerciseEntry, FoodEntry, ISODate, MacroTargets, MealType } from '@/types';
+import type { ExerciseEntry, FoodEntry, ISODate, MacroTargets, MealType, Recipe } from '@/types';
 
 /** Used only until the user has an active goal. */
 const FALLBACK_TARGETS: MacroTargets = { calories: 2000, protein: 150, carbs: 200, fat: 67 };
@@ -38,12 +49,6 @@ const EMPTY_DATA: DiaryData = {
   targets: FALLBACK_TARGETS,
   yesterday: [],
 };
-
-/** Strips the persistence-owned fields so an entry can be re-inserted. */
-function cloneEntry(entry: FoodEntry, overrides: Partial<NewFoodEntry> = {}): NewFoodEntry {
-  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...rest } = entry;
-  return { ...rest, loggedAt: new Date().toISOString(), ...overrides };
-}
 
 function groupByMeal(entries: FoodEntry[]): Record<MealType, FoodEntry[]> {
   const grouped: Record<MealType, FoodEntry[]> = {
@@ -68,7 +73,11 @@ export default function DiaryScreen(): React.JSX.Element {
 
   const [actionEntry, setActionEntry] = useState<FoodEntry | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [saveMealType, setSaveMealType] = useState<MealType | null>(null);
+  const [savedMealName, setSavedMealName] = useState('');
+  const [recipeMealType, setRecipeMealType] = useState<MealType | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const writeInFlightRef = useRef(false);
 
   const previousDate: ISODate = addDaysISO(selectedDate, -1);
 
@@ -119,6 +128,8 @@ export default function DiaryScreen(): React.JSX.Element {
   /** Runs a diary write, refreshes on success and never fails silently. */
   const runWrite = useCallback(
     (write: () => Promise<unknown>) => {
+      if (writeInFlightRef.current) return;
+      writeInFlightRef.current = true;
       void (async () => {
         try {
           await write();
@@ -128,6 +139,8 @@ export default function DiaryScreen(): React.JSX.Element {
             'Could not update your diary',
             error instanceof Error ? error.message : 'Please try again.'
           );
+        } finally {
+          writeInFlightRef.current = false;
         }
       })();
     },
@@ -175,17 +188,17 @@ export default function DiaryScreen(): React.JSX.Element {
   const handleDuplicate = useCallback(
     (entry: FoodEntry) => {
       setActionEntry(null);
-      runWrite(() => addFoodEntry(cloneEntry(entry)));
+      runWrite(() => repeatEntries({ entryIds: [entry.id], date: selectedDate }));
     },
-    [runWrite]
+    [runWrite, selectedDate]
   );
 
   const handleCopyToMeal = useCallback(
     (entry: FoodEntry, mealType: MealType) => {
       setActionEntry(null);
-      runWrite(() => addFoodEntry(cloneEntry(entry, { mealType })));
+      runWrite(() => repeatEntries({ entryIds: [entry.id], date: selectedDate, mealType }));
     },
-    [runWrite]
+    [runWrite, selectedDate]
   );
 
   const handleDelete = useCallback(
@@ -209,11 +222,7 @@ export default function DiaryScreen(): React.JSX.Element {
     (entries: FoodEntry[], mealType?: MealType) => {
       if (entries.length === 0) return;
       runWrite(() =>
-        addFoodEntries(
-          entries.map((entry) =>
-            cloneEntry(entry, { date: selectedDate, ...(mealType ? { mealType } : null) })
-          )
-        )
+        repeatEntries({ entryIds: entries.map((entry) => entry.id), date: selectedDate, mealType })
       );
     },
     [runWrite, selectedDate]
@@ -230,6 +239,38 @@ export default function DiaryScreen(): React.JSX.Element {
     setMenuOpen(false);
     copyEntries(diary.yesterday);
   }, [copyEntries, diary.yesterday]);
+
+  const handleOpenSaveMeal = useCallback((mealType: MealType) => {
+    setSavedMealName(MEAL_LABELS[mealType]);
+    setSaveMealType(mealType);
+  }, []);
+
+  const handleSaveMeal = useCallback(() => {
+    if (!saveMealType) return;
+    const name = savedMealName.trim();
+    const entries = byMeal[saveMealType];
+    if (!name || entries.length === 0) return;
+    const mealType = saveMealType;
+    setSaveMealType(null);
+    runWrite(() =>
+      createRecipeFromEntries({
+        name,
+        kind: 'meal',
+        entryIds: entries.map((entry) => entry.id),
+        servings: 1,
+      })
+    );
+  }, [byMeal, runWrite, saveMealType, savedMealName]);
+
+  const handleLogRecipe = useCallback(
+    (recipe: Recipe) => {
+      if (!recipeMealType) return;
+      const mealType = recipeMealType;
+      setRecipeMealType(null);
+      runWrite(() => logRecipe({ recipeId: recipe.id, date: selectedDate, mealType }));
+    },
+    [recipeMealType, runWrite, selectedDate]
+  );
 
   return (
     <Screen scrollable refreshing={refreshing} onRefresh={handleRefresh}>
@@ -278,6 +319,8 @@ export default function DiaryScreen(): React.JSX.Element {
           onLongPressEntry={handleLongPressEntry}
           yesterdayCount={yesterdayByMeal[mealType].length}
           onCopyYesterday={handleCopyYesterdayMeal}
+          onSaveMeal={handleOpenSaveMeal}
+          onLogRecipe={setRecipeMealType}
         />
       ))}
 
@@ -326,6 +369,43 @@ export default function DiaryScreen(): React.JSX.Element {
           />
         </View>
       </Sheet>
+
+      <Sheet
+        visible={saveMealType !== null}
+        onClose={() => setSaveMealType(null)}
+        title={saveMealType ? `Save ${MEAL_LABELS[saveMealType].toLowerCase()}` : 'Save meal'}
+      >
+        <View testID="save-meal-sheet">
+          <TextField
+            testID="save-meal-name"
+            label="Saved meal name"
+            value={savedMealName}
+            onChangeText={setSavedMealName}
+            autoFocus
+            returnKeyType="done"
+          />
+          <View style={styles.sheetActions}>
+            <Button
+              testID="save-meal-submit"
+              title="Save meal"
+              icon="bookmark-outline"
+              disabled={!savedMealName.trim()}
+              onPress={handleSaveMeal}
+            />
+          </View>
+        </View>
+      </Sheet>
+
+      <RecipePickerMount
+        visible={recipeMealType !== null}
+        title={recipeMealType ? `Log saved meal to ${MEAL_LABELS[recipeMealType]}` : 'Log saved meal'}
+        kind="meal"
+        date={selectedDate}
+        mealType={recipeMealType ?? undefined}
+        onSelectRecipe={handleLogRecipe}
+        onLogged={afterWrite}
+        onClose={() => setRecipeMealType(null)}
+      />
     </Screen>
   );
 }
@@ -353,5 +433,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
+  },
+  sheetActions: {
+    marginTop: 16,
   },
 });

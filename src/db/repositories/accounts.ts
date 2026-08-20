@@ -11,7 +11,7 @@
  *
  * Nothing here logs a password, a hash or a salt.
  */
-import { nowISO } from '@/db/client';
+import { nowISO, runInTransaction } from '@/db/client';
 import { LEGACY_CLAIMABLE_TABLES, UNCLAIMED_ACCOUNT_SQL } from '@/db/schema';
 import type { Account, AccountRecord, ID, PasswordHashFields } from '@/types';
 
@@ -336,10 +336,12 @@ export async function deleteAccount(id: ID): Promise<void> {
   const db = await ensureReady();
   if (!id) return;
 
-  await db.withTransactionAsync(async () => {
+  await runInTransaction(db, async () => {
     // Children first; `foods` before `accounts` so `food_entries.food_id` is
     // already gone and cannot trip the ON DELETE SET NULL path.
     await db.runAsync('DELETE FROM food_entries WHERE account_id = ?;', id);
+    await db.runAsync('DELETE FROM recipe_items WHERE account_id = ?;', id);
+    await db.runAsync('DELETE FROM recipes WHERE account_id = ?;', id);
     await db.runAsync('DELETE FROM exercise_entries WHERE account_id = ?;', id);
     await db.runAsync('DELETE FROM weight_logs WHERE account_id = ?;', id);
     await db.runAsync('DELETE FROM goals WHERE account_id = ?;', id);

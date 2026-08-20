@@ -13,7 +13,7 @@
 
 export const DATABASE_NAME = 'macrotrack.db';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Canonical table names — use these instead of string literals. */
 export const TABLES = {
@@ -21,6 +21,8 @@ export const TABLES = {
   goals: 'goals',
   foods: 'foods',
   foodEntries: 'food_entries',
+  recipes: 'recipes',
+  recipeItems: 'recipe_items',
   exerciseEntries: 'exercise_entries',
   weightLogs: 'weight_logs',
   settings: 'settings',
@@ -32,7 +34,9 @@ export type TableName = (typeof TABLES)[keyof typeof TABLES];
 
 /** All app tables in a safe drop order (children before parents). */
 export const ALL_TABLES: string[] = [
+  TABLES.recipeItems,
   TABLES.foodEntries,
+  TABLES.recipes,
   TABLES.exerciseEntries,
   TABLES.weightLogs,
   TABLES.goals,
@@ -199,6 +203,45 @@ export const COLUMNS = {
     'logged_at',
     'created_at',
     'updated_at',
+  ],
+  recipes: [
+    'id',
+    'name',
+    'kind',
+    'servings',
+    'default_meal_type',
+    'notes',
+    'photo_uri',
+    'is_favorite',
+    'times_logged',
+    'last_logged_at',
+    'total_grams',
+    'calories',
+    'protein',
+    'carbs',
+    'fat',
+    'fiber',
+    'sugar',
+    'sodium',
+    'created_at',
+    'updated_at',
+  ],
+  recipe_items: [
+    'id',
+    'recipe_id',
+    'food_id',
+    'name',
+    'quantity',
+    'unit',
+    'grams_total',
+    'calories',
+    'protein',
+    'carbs',
+    'fat',
+    'fiber',
+    'sugar',
+    'sodium',
+    'sort_order',
   ],
   exercise_entries: [
     'id',
@@ -589,8 +632,59 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_foods_account_barcode
   ON foods(COALESCE(account_id, ''), barcode) WHERE barcode IS NOT NULL;
 `;
 
+const MIGRATION_004 = `
+CREATE TABLE IF NOT EXISTS recipes (
+  id                TEXT PRIMARY KEY NOT NULL,
+  account_id        TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  servings          REAL NOT NULL,
+  default_meal_type TEXT,
+  notes             TEXT,
+  photo_uri         TEXT,
+  is_favorite       INTEGER NOT NULL DEFAULT 0,
+  times_logged      INTEGER NOT NULL DEFAULT 0,
+  last_logged_at    TEXT,
+  total_grams       REAL NOT NULL DEFAULT 0,
+  calories          REAL NOT NULL DEFAULT 0,
+  protein           REAL NOT NULL DEFAULT 0,
+  carbs             REAL NOT NULL DEFAULT 0,
+  fat               REAL NOT NULL DEFAULT 0,
+  fiber             REAL,
+  sugar             REAL,
+  sodium            REAL,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recipe_items (
+  id           TEXT PRIMARY KEY NOT NULL,
+  account_id   TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  recipe_id    TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+  food_id      TEXT REFERENCES foods(id) ON DELETE SET NULL,
+  name         TEXT NOT NULL,
+  quantity     REAL NOT NULL,
+  unit         TEXT NOT NULL,
+  grams_total  REAL NOT NULL,
+  calories     REAL NOT NULL DEFAULT 0,
+  protein      REAL NOT NULL DEFAULT 0,
+  carbs        REAL NOT NULL DEFAULT 0,
+  fat          REAL NOT NULL DEFAULT 0,
+  fiber        REAL,
+  sugar        REAL,
+  sodium       REAL,
+  sort_order   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipes_account_name ON recipes(account_id, name);
+CREATE INDEX IF NOT EXISTS idx_recipe_items_recipe_sort ON recipe_items(recipe_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_recipes_account_favorite ON recipes(account_id, is_favorite);
+CREATE INDEX IF NOT EXISTS idx_recipe_items_account ON recipe_items(account_id);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, sql: MIGRATION_001 },
   { version: 2, sql: MIGRATION_002 },
   { version: 3, sql: MIGRATION_003 },
+  { version: 4, sql: MIGRATION_004 },
 ];

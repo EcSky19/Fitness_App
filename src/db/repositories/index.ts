@@ -39,9 +39,22 @@ export {
   getFoodEntry,
   listEntriesByDate,
   listEntriesByDateRange,
+  repeatEntries,
   updateFoodEntry,
   type NewFoodEntry,
 } from './foodEntries';
+
+// recipes
+export {
+  createRecipeFromEntries,
+  deleteRecipe,
+  getRecipe,
+  listRecipes,
+  logRecipe,
+  saveRecipe,
+  searchRecipes,
+  toggleFavoriteRecipe,
+} from './recipes';
 
 // exercise
 export {

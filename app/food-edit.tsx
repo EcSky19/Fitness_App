@@ -1,12 +1,12 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getActiveGoal, listEntriesByDate, listExercisesByDate } from '@/db/repositories';
+import { getActiveGoal, listEntriesByDate, listExercisesByDate, upsertFood } from '@/db/repositories';
 import { buildDailySummary, formatDateLabel, formatEnergy, formatMacroG, roundTo } from '@/domain';
 import { MacroEditor } from '@/features/diary/MacroEditor';
 import { QuantityUnitRow } from '@/features/diary/QuantityUnitRow';
-import { useEntryDraft } from '@/features/diary/useEntryDraft';
+import { buildCustomFoodInput, firstParam, useEntryDraft } from '@/features/diary/useEntryDraft';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useAppStore } from '@/store/appStore';
 import {
@@ -55,6 +55,7 @@ export default function FoodEditScreen(): React.JSX.Element {
     foodId?: string;
     draft?: string;
     quickAdd?: string;
+    barcode?: string;
     date?: string;
     mealType?: string;
   }>();
@@ -65,9 +66,13 @@ export default function FoodEditScreen(): React.JSX.Element {
 
   const draft = useEntryDraft(params);
   const { state, errors, calories } = draft;
+  const barcode = firstParam(params.barcode) ?? null;
 
   const [photoOpen, setPhotoOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
+  const [savingFood, setSavingFood] = useState(false);
+  const [foodSaveError, setFoodSaveError] = useState<string | null>(null);
+  const saveFoodBusy = useRef(false);
 
   const loadDay = useCallback(async (): Promise<DayContext> => {
     const [entries, exercises, goal] = await Promise.all([
@@ -135,13 +140,31 @@ export default function FoodEditScreen(): React.JSX.Element {
   }, [closeEditor, draft, state.name]);
 
   const handleSaveAsFood = useCallback(() => {
+    if (!barcode) {
+      void (async () => {
+        const saved = await draft.saveAsCustomFood();
+        if (saved) {
+          Alert.alert('Saved to your foods', `"${state.name}" is now searchable.`);
+        }
+      })();
+      return;
+    }
+    if (saveFoodBusy.current || !state.name.trim()) return;
+    saveFoodBusy.current = true;
+    setSavingFood(true);
+    setFoodSaveError(null);
     void (async () => {
-      const saved = await draft.saveAsCustomFood();
-      if (saved) {
+      try {
+        await upsertFood({ ...buildCustomFoodInput(state), barcode });
         Alert.alert('Saved to your foods', `"${state.name}" is now searchable.`);
+      } catch {
+        setFoodSaveError('Could not save this food with its barcode.');
+      } finally {
+        saveFoodBusy.current = false;
+        setSavingFood(false);
       }
     })();
-  }, [draft, state.name]);
+  }, [barcode, draft, state]);
 
   if (state.loading) {
     return (
@@ -203,6 +226,18 @@ export default function FoodEditScreen(): React.JSX.Element {
           onChangeText={draft.setBrand}
           placeholder="Brand"
         />
+
+        {barcode ? (
+          <Card testID="entry-barcode-card" style={{ marginTop: spacing.lg }}>
+            <Text style={[typography.label, { color: colors.textMuted }]}>Barcode</Text>
+            <Text style={[typography.mono, { color: colors.text, marginTop: spacing.xs }]}>
+              {barcode}
+            </Text>
+            <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>
+              Save this food to make future barcode scans instant and offline.
+            </Text>
+          </Card>
+        ) : null}
 
         {state.photoUri ? (
           <Pressable
@@ -305,6 +340,11 @@ export default function FoodEditScreen(): React.JSX.Element {
             {draft.error}
           </Text>
         ) : null}
+        {foodSaveError ? (
+          <Text testID="food-save-error" style={[typography.caption, { color: colors.danger }]}>
+            {foodSaveError}
+          </Text>
+        ) : null}
 
         <View style={{ height: spacing.xl }} />
 
@@ -318,14 +358,15 @@ export default function FoodEditScreen(): React.JSX.Element {
           size="lg"
         />
 
-        {state.mode === 'draft' ? (
+        {state.mode === 'draft' || barcode ? (
           <View style={{ marginTop: spacing.md }}>
             <Button
               testID="entry-save-as-food"
               title="Save as custom food"
               variant="secondary"
               onPress={handleSaveAsFood}
-              disabled={!state.name.trim() || draft.saving}
+              disabled={!state.name.trim() || draft.saving || savingFood}
+              loading={savingFood}
               fullWidth
             />
           </View>

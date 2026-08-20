@@ -5,7 +5,7 @@
 import { nowISO, runInTransaction } from '@/db/client';
 import { COLUMNS, SCHEMA_VERSION } from '@/db/schema';
 import { getCurrentAccountId } from '@/services/auth/currentAccount';
-import type { ExerciseEntry, Food, FoodEntry, WeightLog } from '@/types';
+import type { ExerciseEntry, Food, FoodEntry, Recipe, WeightLog } from '@/types';
 import { listGoals } from './goals';
 import {
   ensureReady,
@@ -21,11 +21,13 @@ import {
 } from './mappers';
 import { deleteFoodPhotoFile } from './photoFiles';
 import { getProfile } from './profile';
+import { listRecipes } from './recipes';
 import { getSettings } from './settings';
 
 export interface DbStats {
   foods: number;
   foodEntries: number;
+  recipes: number;
   exerciseEntries: number;
   weightLogs: number;
 }
@@ -38,6 +40,7 @@ export async function exportAllData(): Promise<Record<string, unknown>> {
   const profile = await getProfile();
   const goals = await listGoals();
   const settings = await getSettings();
+  const recipes: Recipe[] = await listRecipes();
 
   const foodRows = accountId
     ? await db.getAllAsync<FoodRow>(
@@ -84,6 +87,7 @@ export async function exportAllData(): Promise<Record<string, unknown>> {
     goals,
     foods,
     foodEntries,
+    recipes,
     exerciseEntries,
     weightLogs,
     settings,
@@ -104,6 +108,8 @@ export async function clearAllData(): Promise<void> {
     for (const row of photoRows ?? []) deleteFoodPhotoFile(row.photo_uri);
 
     await db.runAsync('DELETE FROM food_entries WHERE account_id = ?;', accountId);
+    await db.runAsync('DELETE FROM recipe_items WHERE account_id = ?;', accountId);
+    await db.runAsync('DELETE FROM recipes WHERE account_id = ?;', accountId);
     await db.runAsync('DELETE FROM exercise_entries WHERE account_id = ?;', accountId);
     await db.runAsync('DELETE FROM weight_logs WHERE account_id = ?;', accountId);
     await db.runAsync('DELETE FROM goals WHERE account_id = ?;', accountId);
@@ -126,6 +132,7 @@ export async function getDbStats(): Promise<DbStats> {
     return {
       foods: row?.foods ?? 0,
       foodEntries: 0,
+      recipes: 0,
       exerciseEntries: 0,
       weightLogs: 0,
     };
@@ -135,8 +142,10 @@ export async function getDbStats(): Promise<DbStats> {
        (SELECT COUNT(*) FROM foods
         WHERE account_id = ? OR (account_id IS NULL AND source = 'seed')) AS foods,
        (SELECT COUNT(*) FROM food_entries WHERE account_id = ?)           AS foodEntries,
-       (SELECT COUNT(*) FROM exercise_entries WHERE account_id = ?)       AS exerciseEntries,
-       (SELECT COUNT(*) FROM weight_logs WHERE account_id = ?)            AS weightLogs;`,
+        (SELECT COUNT(*) FROM recipes WHERE account_id = ?)                AS recipes,
+        (SELECT COUNT(*) FROM exercise_entries WHERE account_id = ?)       AS exerciseEntries,
+        (SELECT COUNT(*) FROM weight_logs WHERE account_id = ?)            AS weightLogs;`,
+    accountId,
     accountId,
     accountId,
     accountId,
@@ -146,6 +155,7 @@ export async function getDbStats(): Promise<DbStats> {
   return {
     foods: row?.foods ?? 0,
     foodEntries: row?.foodEntries ?? 0,
+    recipes: row?.recipes ?? 0,
     exerciseEntries: row?.exerciseEntries ?? 0,
     weightLogs: row?.weightLogs ?? 0,
   };

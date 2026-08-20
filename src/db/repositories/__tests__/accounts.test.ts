@@ -668,8 +668,8 @@ describe('schema migration 2', () => {
   }
 
   it('is the latest migration and matches SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(3);
-    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3]);
+    expect(SCHEMA_VERSION).toBe(4);
+    expect(MIGRATIONS.map((m) => m.version)).toEqual([1, 2, 3, 4]);
   });
 
   it('upgrades a v1 database that already has data, without losing a row', async () => {
@@ -680,7 +680,7 @@ describe('schema migration 2', () => {
     const versions = await db.getAllAsync<{ version: number }>(
       'SELECT version FROM _migrations ORDER BY version;'
     );
-    expect(versions.map((v) => v.version)).toEqual([1, 2, 3]);
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4]);
 
     // `profile` and `settings` are rebuilt by migration 3 with a NOT NULL
     // scoping column, so their unclaimed marker is '' rather than NULL.
@@ -711,6 +711,8 @@ describe('schema migration 2', () => {
       'goals',
       'foods',
       'food_entries',
+      'recipes',
+      'recipe_items',
       'exercise_entries',
       'weight_logs',
       'settings',
@@ -755,6 +757,10 @@ describe('schema migration 2', () => {
       // Migration 3 additions.
       'idx_weight_logs_account_date_unique',
       'idx_foods_account_barcode',
+      // Migration 4 additions.
+      'idx_recipes_account_name',
+      'idx_recipe_items_recipe_sort',
+      'idx_recipes_account_favorite',
     ]) {
       expect(names).toContain(index);
     }

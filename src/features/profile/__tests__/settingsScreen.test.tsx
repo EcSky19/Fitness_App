@@ -106,6 +106,23 @@ describe('Settings — units and appearance', () => {
     await flushAsync();
     expect(screen.getByTestId('app-version').props.children).toBe('1.2.3');
   });
+
+  /**
+   * `barcodeProvider` has to be present in the settings repository allowlist to
+   * survive a restart; if it is dropped there the UI still looks correct but the
+   * choice silently resets on every launch.
+   */
+  it('persists a barcode lookup source change through the store and the repository', async () => {
+    render(<SettingsScreen />);
+    await flushAsync();
+
+    expect(screen.getByTestId('setting-barcode-provider')).toBeTruthy();
+    fireEvent.press(screen.getByText('Demo (offline)'));
+
+    expect(useAppStore.getState().settings.barcodeProvider).toBe('mock');
+    expect(repos.saveSettings).toHaveBeenCalledWith({ barcodeProvider: 'mock' });
+    await flushAsync();
+  });
 });
 
 describe('Settings — AI provider key', () => {

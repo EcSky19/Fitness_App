@@ -90,8 +90,20 @@ export default function RootLayout() {
                   options={{ presentation: 'fullScreenModal', headerShown: false }}
                 />
                 <Stack.Screen
+                  name="barcode-scan"
+                  options={{ presentation: 'fullScreenModal', headerShown: false }}
+                />
+                <Stack.Screen
                   name="scan-review"
                   options={{ presentation: 'modal', title: 'Review items' }}
+                />
+                <Stack.Screen
+                  name="recipes"
+                  options={{ presentation: 'modal', title: 'Recipes' }}
+                />
+                <Stack.Screen
+                  name="recipe-edit"
+                  options={{ presentation: 'modal', title: 'Edit recipe' }}
                 />
                 <Stack.Screen
                   name="food-search"

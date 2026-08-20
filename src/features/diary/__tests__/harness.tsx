@@ -13,7 +13,7 @@
 import React from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
-import type { Food, FoodEntry, Macros, MealType, ServingUnit } from '@/types';
+import type { Food, FoodEntry, Macros, MealType, Recipe, ServingUnit } from '@/types';
 
 const h = React.createElement;
 
@@ -94,6 +94,27 @@ export function makeFood(overrides: Partial<Food> = {}): Food {
     isFavorite: false,
     usageCount: 0,
     lastUsedAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
+export function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
+  return {
+    id: 'recipe-1',
+    name: 'Overnight oats',
+    kind: 'meal',
+    servings: 1,
+    defaultMealType: null,
+    notes: null,
+    photoUri: null,
+    isFavorite: false,
+    timesLogged: 0,
+    lastLoggedAt: null,
+    items: [],
+    totals: makeMacros(420, 20, 55, 12),
+    totalGrams: 300,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -542,12 +563,17 @@ export function repositoriesMock(): Record<string, jest.Mock> {
     addFoodEntries: jest.fn(async () => undefined),
     updateFoodEntry: jest.fn(async () => undefined),
     deleteFoodEntry: jest.fn(async () => undefined),
+    repeatEntries: jest.fn(async () => []),
     searchFoods: jest.fn(async () => []),
     getFood: jest.fn(async () => null),
     upsertFood: jest.fn(async () => null),
     listRecentFoods: jest.fn(async () => []),
     listFavoriteFoods: jest.fn(async () => []),
     toggleFavoriteFood: jest.fn(async () => undefined),
+    listRecipes: jest.fn(async () => []),
+    searchRecipes: jest.fn(async () => []),
+    logRecipe: jest.fn(async () => []),
+    createRecipeFromEntries: jest.fn(async () => makeRecipe()),
     bumpFoodUsage: jest.fn(async () => undefined),
     getActiveGoal: jest.fn(async () => null),
   };

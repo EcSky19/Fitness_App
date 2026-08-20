@@ -6,7 +6,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 
 import DiaryScreen from '../../../../app/(tabs)/diary';
-import { makeEntry, makeMacros, TODAY, YESTERDAY } from './harness';
+import { makeEntry, makeMacros, makeRecipe, TODAY, YESTERDAY } from './harness';
 import { useAppStore } from '@/store/appStore';
 import type { FoodEntry } from '@/types';
 
@@ -17,6 +17,32 @@ jest.mock('@/hooks/useAsyncData', () => require('./harness').asyncDataMock(), { 
 jest.mock('@/services/foodSearch', () => require('./harness').foodSearchMock(), { virtual: true });
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 jest.mock('expo-router', () => require('./harness').routerMock());
+jest.mock(
+  '@/features/recipes/RecipePicker',
+  () => {
+    const ReactLib = require('react');
+    const { Pressable, Text, View } = require('react-native');
+    const recipe = require('./harness').makeRecipe({ id: 'meal-1', name: 'Saved breakfast' });
+    return {
+      RecipePicker: ({ title, kind, onSelectRecipe }: any) =>
+        ReactLib.createElement(View, { testID: 'recipe-picker', accessibilityLabel: title }, [
+              ReactLib.createElement(Text, { key: 'kind' }, kind),
+              ReactLib.createElement(
+                Pressable,
+                {
+                  key: 'select',
+                  testID: 'recipe-picker-select',
+                  accessibilityRole: 'button',
+                  accessibilityLabel: recipe.name,
+                  onPress: () => onSelectRecipe(recipe),
+                },
+                ReactLib.createElement(Text, null, recipe.name)
+              ),
+            ])
+    };
+  },
+  { virtual: true }
+);
 
 const repos = jest.requireMock('@/db/repositories') as Record<string, jest.Mock>;
 const routerModule = jest.requireMock('expo-router') as {
@@ -63,7 +89,10 @@ beforeEach(() => {
   });
   repos.addFoodEntry.mockResolvedValue(undefined);
   repos.addFoodEntries.mockResolvedValue(undefined);
+  repos.repeatEntries.mockResolvedValue([]);
   repos.deleteFoodEntry.mockResolvedValue(undefined);
+  repos.createRecipeFromEntries.mockResolvedValue(makeRecipe());
+  repos.logRecipe.mockResolvedValue([]);
   mockDay(TODAY_ENTRIES, YESTERDAY_ENTRIES);
 });
 
@@ -176,16 +205,13 @@ describe('diary screen', () => {
     fireEvent(screen.getByTestId('entry-row-l1'), 'longPress');
     fireEvent.press(screen.getByTestId('entry-action-duplicate'));
 
-    await waitFor(() => expect(repos.addFoodEntry).toHaveBeenCalledTimes(1));
-    const [payload] = repos.addFoodEntry.mock.calls[0];
-    expect(payload).toMatchObject({ name: 'Chicken salad', mealType: 'lunch', date: TODAY });
-    expect(payload).not.toHaveProperty('id');
-    expect(payload).not.toHaveProperty('createdAt');
+    await waitFor(() => expect(repos.repeatEntries).toHaveBeenCalledTimes(1));
+    expect(repos.repeatEntries).toHaveBeenCalledWith({ entryIds: ['l1'], date: TODAY });
   });
 
   it('warns instead of failing silently when a duplicate write fails', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    repos.addFoodEntry.mockRejectedValueOnce(new Error('db is locked'));
+    repos.repeatEntries.mockRejectedValueOnce(new Error('db is locked'));
     await renderDiary();
 
     fireEvent(screen.getByTestId('entry-row-l1'), 'longPress');
@@ -203,23 +229,40 @@ describe('diary screen', () => {
     fireEvent.press(screen.getByTestId('entry-action-copy'));
     fireEvent.press(screen.getByTestId('entry-action-copy-dinner'));
 
-    await waitFor(() => expect(repos.addFoodEntry).toHaveBeenCalledTimes(1));
-    expect(repos.addFoodEntry).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Chicken salad', mealType: 'dinner' })
-    );
+    await waitFor(() => expect(repos.repeatEntries).toHaveBeenCalledTimes(1));
+    expect(repos.repeatEntries).toHaveBeenCalledWith({
+      entryIds: ['l1'],
+      date: TODAY,
+      mealType: 'dinner',
+    });
   });
 
-  it("copies yesterday's meal into an empty section in one transaction", async () => {
+  it("repeats yesterday's meal into an empty section in one transaction", async () => {
     await renderDiary();
 
     expect(screen.queryByTestId('meal-copy-yesterday-breakfast')).toBeNull();
     fireEvent.press(screen.getByTestId('meal-copy-yesterday-dinner'));
 
-    await waitFor(() => expect(repos.addFoodEntries).toHaveBeenCalledTimes(1));
-    const [batch] = repos.addFoodEntries.mock.calls[0];
-    expect(batch).toHaveLength(1);
-    expect(batch[0]).toMatchObject({ name: 'Pasta bake', mealType: 'dinner', date: TODAY });
-    expect(batch[0]).not.toHaveProperty('id');
+    await waitFor(() => expect(repos.repeatEntries).toHaveBeenCalledTimes(1));
+    expect(repos.repeatEntries).toHaveBeenCalledWith({
+      entryIds: ['y1'],
+      date: TODAY,
+      mealType: 'dinner',
+    });
+  });
+
+  it('guards a double-tapped meal repeat so exactly one copy is created', async () => {
+    await renderDiary();
+
+    fireEvent.press(screen.getByTestId('meal-copy-yesterday-dinner'));
+    fireEvent.press(screen.getByTestId('meal-copy-yesterday-dinner'));
+
+    await waitFor(() => expect(repos.repeatEntries).toHaveBeenCalledTimes(1));
+    expect(repos.repeatEntries).toHaveBeenCalledWith({
+      entryIds: ['y1'],
+      date: TODAY,
+      mealType: 'dinner',
+    });
   });
 
   it('copies the whole previous day from the header menu', async () => {
@@ -228,8 +271,39 @@ describe('diary screen', () => {
     fireEvent.press(screen.getByTestId('diary-menu-button'));
     fireEvent.press(screen.getByTestId('diary-menu-copy-day'));
 
-    await waitFor(() => expect(repos.addFoodEntries).toHaveBeenCalledTimes(1));
-    expect(repos.addFoodEntries.mock.calls[0][0]).toHaveLength(1);
+    await waitFor(() => expect(repos.repeatEntries).toHaveBeenCalledTimes(1));
+    expect(repos.repeatEntries).toHaveBeenCalledWith({ entryIds: ['y1'], date: TODAY });
+  });
+
+  it('saves the current meal as a reusable saved meal', async () => {
+    await renderDiary();
+
+    fireEvent.press(screen.getByTestId('meal-save-breakfast'));
+    fireEvent.changeText(screen.getByTestId('save-meal-name'), 'Workday breakfast');
+    fireEvent.press(screen.getByTestId('save-meal-submit'));
+
+    await waitFor(() => expect(repos.createRecipeFromEntries).toHaveBeenCalledTimes(1));
+    expect(repos.createRecipeFromEntries).toHaveBeenCalledWith({
+      name: 'Workday breakfast',
+      kind: 'meal',
+      entryIds: ['b1', 'b2'],
+      servings: 1,
+    });
+  });
+
+  it('logs a saved meal from an empty diary meal section', async () => {
+    await renderDiary();
+
+    fireEvent.press(screen.getByTestId('meal-log-recipe-snack'));
+    expect(screen.getByTestId('recipe-picker')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('recipe-picker-select'));
+
+    await waitFor(() => expect(repos.logRecipe).toHaveBeenCalledTimes(1));
+    expect(repos.logRecipe).toHaveBeenCalledWith({
+      recipeId: 'meal-1',
+      date: TODAY,
+      mealType: 'snack',
+    });
   });
 
   it('routes to quick add from the header menu', async () => {

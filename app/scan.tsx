@@ -203,6 +203,12 @@ export default function ScanScreen(): React.JSX.Element {
     router.push('/settings');
   }, []);
 
+  const goBarcode = useCallback(() => {
+    router.replace(
+      `/barcode-scan?date=${encodeURIComponent(date)}&mealType=${encodeURIComponent(mealType)}` as Href
+    );
+  }, [date, mealType]);
+
   const close = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace('/(tabs)');
@@ -332,6 +338,16 @@ export default function ScanScreen(): React.JSX.Element {
         busy={phase !== 'camera'}
       />
 
+      <View style={styles.barcodeShortcut} pointerEvents="box-none">
+        <Button
+          title="Scan barcode"
+          variant="secondary"
+          icon="barcode-outline"
+          onPress={goBarcode}
+          testID="barcode-mode-button"
+        />
+      </View>
+
       {phase === 'analyzing' && photoUri ? (
         <AnalyzingOverlay photoUri={photoUri} mode={mode} onCancel={cancelAnalysis} />
       ) : null}
@@ -388,6 +404,7 @@ export default function ScanScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   backToCamera: { alignSelf: 'center', marginTop: 12 },
+  barcodeShortcut: { alignItems: 'center', bottom: 126, left: 0, position: 'absolute', right: 0 },
   resultContent: { flexGrow: 1, justifyContent: 'center' },
   resultRoot: { backgroundColor: '#000' },
   root: { backgroundColor: '#000', flex: 1 },

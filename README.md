@@ -33,6 +33,14 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 - Day totals and one section per meal.
 - Add, edit, duplicate, copy-to-meal and delete food entries.
 - Quick add and custom-food creation for items not in the catalogue.
+- Copy yesterday's meal into today in one tap, or save a logged meal as a reusable saved meal.
+
+### Recipes and saved meals (`app/recipes.tsx` → `app/recipe-edit.tsx`)
+- **Saved meals** are combinations you log as-is, like your usual breakfast.
+- **Recipes** are bulk dishes divided into servings, like a pot of chilli; logging scales every ingredient by `servings / recipe.servings`.
+- Browse, search, filter by kind and star favourites.
+- Build from scratch or from entries you already logged, then reorder/edit ingredients with live totals.
+- Logging expands the recipe into real, individually editable diary entries in one transaction.
 
 ### Activity (`app/(tabs)/activity.tsx`)
 - Daily burn summary from logged workouts plus optional health active energy.
@@ -55,11 +63,15 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 - Account management.
 - Units, theme and exercise-budget preferences.
 - AI provider/key storage.
+- Barcode lookup source.
 - Health status, permissions and sync toggle.
 - Data export as JSON and account-scoped data clearing.
 
 ### Scan (`app/scan.tsx` → `app/scan-review.tsx`)
 Take or pick a food image, analyze it with the mock/OpenAI/Gemini provider, review every detected item, adjust quantities/macros and log the chosen items in one transaction. Food photos are copied under `document/food-entry-photos/<accountId>/` and deleted when the entry or the signed-in account's data is deleted.
+
+### Barcode (`app/barcode-scan.tsx`)
+Scan a product barcode with the camera, or type it in when the label is damaged. Lookup checks your own foods first (so a rescan is instant and works offline), then the configured provider — Open Food Facts by default, which needs no API key. A miss is treated as "create this food" rather than an error, and network failures are reported separately from a genuine not-found. Confirmed products are saved to your catalogue and reused on the next scan.
 
 ---
 
@@ -191,6 +203,8 @@ SQLite is created and migrated by `src/db/schema.ts`. Current `SCHEMA_VERSION` i
 | `exercise_entries` | Account-scoped manual or health-imported workouts with date, duration, calories, source and optional external id |
 | `weight_logs` | Account-scoped date, weight kg, optional body-fat percentage/note and source |
 | `settings` | Account-scoped key/value preferences with `PRIMARY KEY (account_id, key)` |
+| `recipes` | Account-scoped saved meals and recipes: kind, servings, default meal type, notes, favorite/usage fields and cached totals |
+| `recipe_items` | Ingredients belonging to a recipe: name, quantity, unit, grams, macros, sort order and optional `food_id` |
 | `_migrations` | Applied migration ids |
 
 Schema history:
@@ -198,6 +212,7 @@ Schema history:
 - Migration 1 created the original single-user tables.
 - Migration 2 added `accounts` and nullable `account_id` columns to `profile`, `goals`, `food_entries`, `exercise_entries`, `weight_logs`, `settings` and `foods`.
 - Migration 3 rebuilt `settings` with `PRIMARY KEY (account_id, key)`, rebuilt `profile` with a surrogate `id` plus `account_id NOT NULL UNIQUE`, and added unique indexes on `COALESCE(account_id, '')` for `weight_logs(date)` and `foods(barcode)`.
+- Migration 4 added `recipes` and `recipe_items`, both with `account_id NOT NULL` and `ON DELETE CASCADE` to `accounts`.
 
 Legacy-upgrade rule: rows from the pre-accounts app are claimed by the **first** account created on the device (`claimLegacyData`). Later accounts start empty. Tests cover upgrading a v1 database without row loss.
 
@@ -254,8 +269,8 @@ npx expo export -p ios
 
 - **No cloud sync.** Accounts are local to one device. Export produces JSON, but there is no in-app import/restore flow.
 - **No server password recovery.** If an account has no security question and the password is forgotten, that account's data is unrecoverable.
-- **Barcode lookup has no scanner UI.** The schema, `barcode` field and `getFoodByBarcode()` repository function exist, but there is no barcode-scanning screen and no external product database.
+- **Barcode coverage depends on Open Food Facts.** It is a crowd-sourced database, so entries can be missing, incomplete or wrong. Products are always shown for review before they are saved, and anything you confirm is stored locally and reused.
 - **Photo portion estimates are approximate.** Vision models infer grams from a single 2D image; review quantities before logging.
 - **MET-based burn figures are estimates.** Manual workout calories use a generic MET table and body weight, not heart-rate/device-sensor data.
 - **Health sync is read-mostly.** Steps, active energy and workouts are imported; only weight is written back.
-- No widgets, notifications/reminders, recipes or meal planning yet.
+- No widgets, notifications/reminders or multi-day meal planning yet.

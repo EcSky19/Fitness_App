@@ -19,6 +19,8 @@ export interface MealSectionProps {
   /** Number of entries logged for the same meal yesterday. */
   yesterdayCount?: number;
   onCopyYesterday?: (mealType: MealType) => void;
+  onSaveMeal?: (mealType: MealType) => void;
+  onLogRecipe?: (mealType: MealType) => void;
 }
 
 /** One meal block: header with totals and a "+", then its entries. */
@@ -31,12 +33,16 @@ export function MealSection({
   onLongPressEntry,
   yesterdayCount = 0,
   onCopyYesterday,
+  onSaveMeal,
+  onLogRecipe,
 }: MealSectionProps): React.JSX.Element {
   const { colors, spacing, typography } = useTheme();
   const label = MEAL_LABELS[mealType];
 
   const handleAdd = useCallback(() => onAdd(mealType), [mealType, onAdd]);
   const handleCopy = useCallback(() => onCopyYesterday?.(mealType), [mealType, onCopyYesterday]);
+  const handleSaveMeal = useCallback(() => onSaveMeal?.(mealType), [mealType, onSaveMeal]);
+  const handleLogRecipe = useCallback(() => onLogRecipe?.(mealType), [mealType, onLogRecipe]);
 
   return (
     <Card padded={false} testID={`meal-section-${mealType}`} style={styles.card}>
@@ -80,14 +86,42 @@ export function MealSection({
               style={styles.copyButton}
             />
           ) : null}
+          {onLogRecipe ? (
+            <Button
+              testID={`meal-log-recipe-${mealType}`}
+              title="Log saved meal"
+              icon="albums-outline"
+              variant="ghost"
+              size="sm"
+              onPress={handleLogRecipe}
+              style={styles.copyButton}
+            />
+          ) : null}
         </View>
       ) : (
-        entries.map((entry, index) => (
-          <View key={entry.id}>
-            {index > 0 ? <Divider /> : null}
-            <FoodEntryRow entry={entry} onPress={onPressEntry} onLongPress={onLongPressEntry} />
-          </View>
-        ))
+        <>
+          {entries.map((entry, index) => (
+            <View key={entry.id}>
+              {index > 0 ? <Divider /> : null}
+              <FoodEntryRow entry={entry} onPress={onPressEntry} onLongPress={onLongPressEntry} />
+            </View>
+          ))}
+          {onSaveMeal ? (
+            <>
+              <Divider />
+              <View style={[styles.footer, { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm }]}>
+                <Button
+                  testID={`meal-save-${mealType}`}
+                  title="Save as meal"
+                  icon="bookmark-outline"
+                  variant="ghost"
+                  size="sm"
+                  onPress={handleSaveMeal}
+                />
+              </View>
+            </>
+          ) : null}
+        </>
       )}
     </Card>
   );
@@ -109,6 +143,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   empty: {
+    alignItems: 'flex-start',
+  },
+  footer: {
     alignItems: 'flex-start',
   },
   header: {

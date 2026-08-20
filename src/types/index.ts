@@ -108,6 +108,38 @@ export interface FoodEntry {
   updatedAt: ISODateTime;
 }
 
+export type RecipeKind = 'recipe' | 'meal';
+
+export interface RecipeItem {
+  id: ID;
+  recipeId: ID;
+  foodId: ID | null;
+  name: string;
+  quantity: number;
+  unit: string;
+  gramsTotal: number;
+  macros: Macros;
+  sortOrder: number;
+}
+
+export interface Recipe {
+  id: ID;
+  name: string;
+  kind: RecipeKind;
+  servings: number;
+  defaultMealType: MealType | null;
+  notes: string | null;
+  photoUri: string | null;
+  isFavorite: boolean;
+  timesLogged: number;
+  lastLoggedAt: string | null;
+  items: RecipeItem[];
+  totals: Macros;
+  totalGrams: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ExerciseEntry {
   id: ID;
   date: ISODate;
@@ -171,6 +203,7 @@ export interface AppSettings {
   heightUnit: HeightUnit;
   energyUnit: 'kcal' | 'kJ';
   visionProvider: string;    // 'mock' | 'openai' | 'gemini'
+  barcodeProvider: string;   // 'mock' | 'openfoodfacts'
   healthSyncEnabled: boolean;
   addExerciseToTarget: boolean;
   theme: 'system' | 'light' | 'dark';

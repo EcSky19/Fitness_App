@@ -25,6 +25,7 @@ import {
   isHealthSupported,
 } from '@/services/health';
 import { clearApiKey, getApiKey, listVisionProviders, setApiKey } from '@/services/vision';
+import { listBarcodeProviders } from '@/services/barcode';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { useAppStore } from '@/store/appStore';
 import type { AppSettings, HealthPermissionStatus, HeightUnit, WeightUnit } from '@/types';
@@ -148,6 +149,9 @@ export default function SettingsScreen(): React.JSX.Element {
     () => data.providers.find((p) => p.id === settings.visionProvider) ?? null,
     [data.providers, settings.visionProvider]
   );
+
+  // Static registry, so it needs no async load and can never fail.
+  const barcodeProviders = useMemo(() => listBarcodeProviders() ?? [], []);
 
   /* ---------------------------------------------------------------------- */
   /* Vision key                                                              */
@@ -498,6 +502,32 @@ export default function SettingsScreen(): React.JSX.Element {
             </View>
           )}
         </View>
+      </Card>
+
+      {/* ---- Barcode ---- */}
+      <SectionHeader title="Barcode scanning" />
+      <Card>
+        <SettingsRow
+          title="Lookup source"
+          subtitle="Scanned barcodes always check your own foods first, then this source."
+          icon="barcode-outline"
+          stacked
+          testID="setting-barcode-provider"
+          right={
+            barcodeProviders.length > 0 ? (
+              <SegmentedControl<string>
+                options={barcodeProviders.map((p) => ({ label: p.label, value: p.id }))}
+                value={settings.barcodeProvider}
+                onChange={(barcodeProvider) => applySettings({ barcodeProvider })}
+                size="sm"
+              />
+            ) : (
+              <Text style={[typography.caption, { color: colors.textMuted }]}>
+                No providers available.
+              </Text>
+            )
+          }
+        />
       </Card>
 
       {/* ---- Health ---- */}

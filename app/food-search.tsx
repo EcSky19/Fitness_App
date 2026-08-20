@@ -1,17 +1,25 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, View } from 'react-native';
 
-import { listFavoriteFoods, listRecentFoods, toggleFavoriteFood } from '@/db/repositories';
+import {
+  addFoodEntry,
+  bumpFoodUsage,
+  listFavoriteFoods,
+  listRecentFoods,
+  logRecipe,
+  toggleFavoriteFood,
+} from '@/db/repositories';
 import { CustomFoodSheet } from '@/features/diary/CustomFoodSheet';
 import { FoodSearchResultRow } from '@/features/diary/FoodSearchResultRow';
+import { RecipePickerMount } from '@/features/diary/RecipePickerMount';
 import {
   inferMealType,
   normalizeDateParam,
   normalizeMealParam,
 } from '@/features/diary/useEntryDraft';
 import { useAsyncData } from '@/hooks/useAsyncData';
-import { ensureFoodsSeeded, searchAllFoods } from '@/services/foodSearch';
+import { ensureFoodsSeeded, scaleFoodToEntry, searchAllFoods } from '@/services/foodSearch';
 import { useAppStore } from '@/store/appStore';
 import {
   Button,
@@ -24,7 +32,7 @@ import {
   useTheme,
 } from '@/ui';
 import { MEAL_LABELS } from '@/types/constants';
-import type { Food, ID } from '@/types';
+import type { Food, ID, Recipe } from '@/types';
 
 type SearchTab = 'all' | 'recent' | 'favorites';
 
@@ -69,7 +77,9 @@ export default function FoodSearchScreen(): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<SearchTab>('all');
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [recipePickerOpen, setRecipePickerOpen] = useState(false);
   const [seeded, setSeeded] = useState(false);
+  const writeInFlightRef = useRef(false);
 
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const trimmedQuery = debouncedQuery.trim();
@@ -94,11 +104,68 @@ export default function FoodSearchScreen(): React.JSX.Element {
   const results = useMemo(() => data ?? [], [data]);
   const searching = loading || query.trim() !== trimmedQuery;
 
+  const runWrite = useCallback(
+    (write: () => Promise<unknown>) => {
+      if (writeInFlightRef.current) return;
+      writeInFlightRef.current = true;
+      void (async () => {
+        try {
+          await write();
+          invalidate();
+          router.back();
+        } catch (error) {
+          Alert.alert('Could not log food', error instanceof Error ? error.message : 'Please try again.');
+        } finally {
+          writeInFlightRef.current = false;
+        }
+      })();
+    },
+    [invalidate]
+  );
+
+  const logFoodNow = useCallback(
+    (food: Food) => {
+      const scaled = scaleFoodToEntry(food, 1, 'serving');
+      const foodId = food.id.startsWith('seed:') ? null : food.id;
+      runWrite(async () => {
+        await addFoodEntry({
+          date,
+          mealType,
+          foodId,
+          name: food.name,
+          brand: food.brand ?? null,
+          quantity: 1,
+          unit: 'serving',
+          servingLabel: scaled.servingLabel,
+          gramsTotal: scaled.gramsTotal,
+          macros: scaled.macros,
+          photoUri: null,
+          source: food.source === 'seed' ? 'custom' : food.source,
+          visionConfidence: null,
+          wasEdited: false,
+          loggedAt: new Date().toISOString(),
+        });
+        if (foodId) {
+          try {
+            await bumpFoodUsage(foodId);
+          } catch {
+            // Usage stats are best effort; never fail a one-tap log because of them.
+          }
+        }
+      });
+    },
+    [date, mealType, runWrite]
+  );
+
   const handleSelect = useCallback(
     (food: Food) => {
+      if (tab !== 'all') {
+        logFoodNow(food);
+        return;
+      }
       router.push({ pathname: '/food-edit', params: { foodId: food.id, date, mealType } });
     },
-    [date, mealType]
+    [date, logFoodNow, mealType, tab]
   );
 
   const handleToggleFavorite = useCallback(
@@ -133,6 +200,14 @@ export default function FoodSearchScreen(): React.JSX.Element {
     [date, invalidate, mealType]
   );
 
+  const handleLogRecipe = useCallback(
+    (recipe: Recipe) => {
+      setRecipePickerOpen(false);
+      runWrite(() => logRecipe({ recipeId: recipe.id, date, mealType }));
+    },
+    [date, mealType, runWrite]
+  );
+
   const emptyMessage =
     tab === 'recent'
       ? 'Foods you log will show up here for one-tap re-logging.'
@@ -164,6 +239,15 @@ export default function FoodSearchScreen(): React.JSX.Element {
             variant="secondary"
             size="sm"
             onPress={handleScan}
+          />
+          <View style={styles.actionGap} />
+          <Button
+            testID="food-search-recipes"
+            title="Saved meals"
+            icon="albums-outline"
+            variant="secondary"
+            size="sm"
+            onPress={() => setRecipePickerOpen(true)}
           />
           <View style={styles.actionGap} />
           <Button
@@ -229,6 +313,19 @@ export default function FoodSearchScreen(): React.JSX.Element {
         onClose={() => setSheetOpen(false)}
         initialName={trimmedQuery}
         onCreated={handleCreated}
+      />
+      <RecipePickerMount
+        visible={recipePickerOpen}
+        title={`Log saved meal to ${MEAL_LABELS[mealType]}`}
+        kind="meal"
+        date={date}
+        mealType={mealType}
+        onSelectRecipe={handleLogRecipe}
+        onLogged={() => {
+          invalidate();
+          router.back();
+        }}
+        onClose={() => setRecipePickerOpen(false)}
       />
     </Screen>
   );

@@ -154,6 +154,7 @@ describe('admin repository', () => {
       'foods',
       'goals',
       'profile',
+      'recipes',
       'settings',
       'version',
       'weightLogs',
@@ -173,6 +174,7 @@ describe('admin repository', () => {
     await expect(getDbStats()).resolves.toEqual({
       foods: 0,
       foodEntries: 0,
+      recipes: 0,
       exerciseEntries: 0,
       weightLogs: 0,
     });
@@ -182,6 +184,7 @@ describe('admin repository', () => {
     await expect(getDbStats()).resolves.toEqual({
       foods: 1,
       foodEntries: 1,
+      recipes: 0,
       exerciseEntries: 1,
       weightLogs: 1,
     });
@@ -194,6 +197,7 @@ describe('admin repository', () => {
     await expect(getDbStats()).resolves.toEqual({
       foods: 0,
       foodEntries: 0,
+      recipes: 0,
       exerciseEntries: 0,
       weightLogs: 0,
     });

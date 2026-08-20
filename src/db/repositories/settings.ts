@@ -26,6 +26,7 @@ export const SETTINGS_KEYS: (keyof AppSettings)[] = [
   'heightUnit',
   'energyUnit',
   'visionProvider',
+  'barcodeProvider',
   'healthSyncEnabled',
   'addExerciseToTarget',
   'theme',

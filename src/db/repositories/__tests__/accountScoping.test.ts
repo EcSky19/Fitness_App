@@ -49,8 +49,10 @@ import { claimLegacyData } from '@/db/repositories/accounts';
 import {
   addExerciseEntry,
   addFoodEntry,
+  createRecipeFromEntries,
   addWeightLog,
   clearAllData,
+  deleteRecipe,
   deleteExerciseEntry,
   deleteFood,
   deleteFoodEntry,
@@ -63,18 +65,23 @@ import {
   getFoodEntry,
   getLatestWeight,
   getProfile,
+  getRecipe,
   getSettings,
   getWeightLog,
   listEntriesByDate,
   listExercisesByDate,
   listGoals,
+  listRecipes,
   listWeightLogs,
   saveGoal,
   saveProfile,
+  saveRecipe,
   saveSettings,
   searchFoods,
+  searchRecipes,
   seedFoods,
   toggleFavoriteFood,
+  toggleFavoriteRecipe,
   updateExerciseEntry,
   updateFoodEntry,
   updateWeightLog,
@@ -116,6 +123,7 @@ describe('repository account scoping', () => {
       gramsTotal: 50,
       macros,
     });
+
     const exerciseA = await addExerciseEntry({
       date: '2026-08-19',
       name: 'Private run',
@@ -167,6 +175,73 @@ describe('repository account scoping', () => {
     await expect(getFoodEntry(entryA.id)).resolves.toMatchObject({ id: entryA.id });
     await expect(getExerciseEntry(exerciseA.id)).resolves.toMatchObject({ id: exerciseA.id });
     await expect(getWeightLog(weightA.id)).resolves.toMatchObject({ id: weightA.id, weightKg: 61 });
+  });
+
+  it('isolates recipes and recipe items across read, update and delete paths', async () => {
+      const recipeA = await saveRecipe({
+        name: 'Private recipe',
+        kind: 'recipe',
+        servings: 2,
+        items: [
+          {
+            foodId: null,
+            name: 'Secret ingredient',
+            quantity: 1,
+            unit: 'serving',
+            gramsTotal: 100,
+            macros,
+            sortOrder: 0,
+          },
+        ],
+      });
+
+      await useTestAccount(B);
+
+      await expect(getRecipe(recipeA.id)).resolves.toBeNull();
+      await expect(listRecipes()).resolves.toEqual([]);
+      await expect(searchRecipes('Private')).resolves.toEqual([]);
+      await expect(toggleFavoriteRecipe(recipeA.id)).rejects.toThrow(/not found/);
+      await expect(
+        saveRecipe({
+          id: recipeA.id,
+          name: 'Stolen recipe',
+          items: [
+            {
+              foodId: null,
+              name: 'Stolen ingredient',
+              quantity: 1,
+              unit: 'serving',
+              gramsTotal: 50,
+              macros,
+              sortOrder: 0,
+            },
+          ],
+        })
+      ).rejects.toThrow(/saveRecipe/);
+      await deleteRecipe(recipeA.id);
+
+      const entryB = await addFoodEntry({
+        date: '2026-08-19',
+        mealType: 'lunch',
+        name: 'B entry',
+        quantity: 1,
+        unit: 'serving',
+        gramsTotal: 100,
+        macros,
+      });
+      const fromB = await createRecipeFromEntries({
+        name: 'B recipe',
+        entryIds: [entryB.id, recipeA.id],
+      });
+      expect(fromB.items).toHaveLength(1);
+      expect(fromB.items[0].name).toBe('B entry');
+
+      await useTestAccount(A);
+      await expect(getRecipe(recipeA.id)).resolves.toMatchObject({
+        id: recipeA.id,
+        name: 'Private recipe',
+        items: [{ name: 'Secret ingredient' }],
+      });
   });
 
   it('keeps same-date weight replacement scoped to the current account', async () => {

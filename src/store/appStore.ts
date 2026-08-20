@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   heightUnit: 'ft_in',
   energyUnit: 'kcal',
   visionProvider: process.env.EXPO_PUBLIC_VISION_PROVIDER ?? 'mock',
+  barcodeProvider: process.env.EXPO_PUBLIC_BARCODE_PROVIDER ?? 'openfoodfacts',
   healthSyncEnabled: false,
   addExerciseToTarget: true,
   theme: 'system',

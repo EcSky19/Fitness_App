@@ -3,6 +3,7 @@
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import React from 'react';
+import { Alert } from 'react-native';
 
 import FoodSearchScreen from '../../../../app/food-search';
 import { makeFood, TODAY } from './harness';
@@ -16,6 +17,30 @@ jest.mock('@/hooks/useAsyncData', () => require('./harness').asyncDataMock(), { 
 jest.mock('@/services/foodSearch', () => require('./harness').foodSearchMock(), { virtual: true });
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 jest.mock('expo-router', () => require('./harness').routerMock());
+jest.mock(
+  '@/features/recipes/RecipePicker',
+  () => {
+    const ReactLib = require('react');
+    const { Pressable, Text, View } = require('react-native');
+    const recipe = require('./harness').makeRecipe({ id: 'meal-1', name: 'Saved lunch' });
+    return {
+      RecipePicker: ({ onSelectRecipe }: any) =>
+        ReactLib.createElement(View, { testID: 'recipe-picker' },
+              ReactLib.createElement(
+                Pressable,
+                {
+                  testID: 'recipe-picker-select',
+                  accessibilityRole: 'button',
+                  accessibilityLabel: recipe.name,
+                  onPress: () => onSelectRecipe(recipe),
+                },
+                ReactLib.createElement(Text, null, recipe.name)
+              )
+            )
+    };
+  },
+  { virtual: true }
+);
 
 const repos = jest.requireMock('@/db/repositories') as Record<string, jest.Mock>;
 const foodSearch = jest.requireMock('@/services/foodSearch') as Record<string, jest.Mock>;
@@ -52,6 +77,9 @@ beforeEach(() => {
   repos.listFavoriteFoods.mockResolvedValue([CHICKEN]);
   repos.toggleFavoriteFood.mockResolvedValue(undefined);
   repos.upsertFood.mockResolvedValue(null);
+  repos.addFoodEntry.mockResolvedValue(undefined);
+  repos.bumpFoodUsage.mockResolvedValue(undefined);
+  repos.logRecipe.mockResolvedValue([]);
 });
 
 describe('food search screen', () => {
@@ -86,6 +114,55 @@ describe('food search screen', () => {
     fireEvent.press(screen.getByTestId('segment-favorites'));
     await waitFor(() => expect(repos.listFavoriteFoods).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('food-result-f2')).toBeTruthy());
+  });
+
+  it('logs a recent food in one tap without opening the editor', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByTestId('segment-recent'));
+    await waitFor(() => expect(screen.getByTestId('food-result-f1')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('food-result-f1'));
+
+    await waitFor(() => expect(repos.addFoodEntry).toHaveBeenCalledTimes(1));
+    expect(repos.addFoodEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        date: TODAY,
+        mealType: 'lunch',
+        foodId: 'f1',
+        name: 'Greek yogurt',
+        quantity: 1,
+        unit: 'serving',
+      })
+    );
+    expect(repos.bumpFoodUsage).toHaveBeenCalledWith('f1');
+    expect(routerModule.router.push).not.toHaveBeenCalled();
+  });
+
+  it('logs a favorite food in one tap', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByTestId('segment-favorites'));
+    await waitFor(() => expect(screen.getByTestId('food-result-f2')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('food-result-f2'));
+
+    await waitFor(() => expect(repos.addFoodEntry).toHaveBeenCalledTimes(1));
+    expect(repos.addFoodEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ foodId: 'f2', name: 'Chicken breast', mealType: 'lunch' })
+    );
+  });
+
+  it('warns instead of failing silently when one-tap logging fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    repos.addFoodEntry.mockRejectedValueOnce(new Error('db is locked'));
+    await renderScreen();
+
+    fireEvent.press(screen.getByTestId('segment-recent'));
+    await waitFor(() => expect(screen.getByTestId('food-result-f1')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('food-result-f1'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0][0]).toBe('Could not log food');
+    alertSpy.mockRestore();
   });
 
   it('stars a food without leaving the list', async () => {
@@ -123,6 +200,21 @@ describe('food search screen', () => {
     expect(routerModule.router.push).toHaveBeenCalledWith({
       pathname: '/food-edit',
       params: { quickAdd: '1', date: TODAY, mealType: 'lunch' },
+    });
+  });
+
+  it('logs a saved recipe from food search', async () => {
+    await renderScreen();
+
+    fireEvent.press(screen.getByTestId('food-search-recipes'));
+    expect(screen.getByTestId('recipe-picker')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('recipe-picker-select'));
+
+    await waitFor(() => expect(repos.logRecipe).toHaveBeenCalledTimes(1));
+    expect(repos.logRecipe).toHaveBeenCalledWith({
+      recipeId: 'meal-1',
+      date: TODAY,
+      mealType: 'lunch',
     });
   });
 
