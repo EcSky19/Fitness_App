@@ -138,7 +138,20 @@ Provider resolution is: explicit argument → app settings → `EXPO_PUBLIC_VISI
 
 ## Health setup
 
-By default `getHealthService()` returns a deterministic simulated provider, so Activity, sync flows and tests work on any device without native health libraries.
+Which provider `getHealthService()` returns depends on the build:
+
+| Build | Native library linked | Provider | Behaviour |
+| --- | --- | --- | --- |
+| any | yes | Apple HealthKit / Health Connect | real device data |
+| development (`__DEV__`) | no | simulated | deterministic fake data, so the app is demoable |
+| release | no | unavailable | reports unavailable, returns empty days |
+
+The split matters. The simulated provider reports itself available and grants
+permission on request, which is what makes it useful for demos — and exactly
+what would mislead a real user. Shipped as-is, someone would tap **Connect**,
+be told they were connected, and then see invented workouts and step counts
+folded into their diary. Fabricated burn inflates the calorie budget they are
+trying to stay under, so release builds never fall back to it.
 
 Neither native health library is a dependency of this project. To enable real health data, add the relevant library to a development build and add its config plugin to `app.json`:
 
@@ -147,10 +160,12 @@ npx expo install react-native-health          # iOS / Apple HealthKit
 npx expo install react-native-health-connect  # Android / Health Connect
 ```
 
-The current native permission declarations are:
-
-- iOS `NSHealthShareUsageDescription` and `NSHealthUpdateUsageDescription`, plus camera/photo-library strings.
-- Android `CAMERA`, health reads for steps, active calories, total calories, exercise, distance and weight, plus `WRITE_WEIGHT`.
+Because the first release ships without them, the corresponding permission
+declarations have been removed from `app.json`: Android declares only
+`android.permission.CAMERA`, and the iOS `NSHealth*` usage strings are gone.
+Both stores reject health permissions that are not backed by working
+functionality. **Re-add them in the same change that adds the native library**,
+and file Google's Health Connect declaration form before submitting.
 
 `src/services/health/nativeModule.ts` detects an installed native library through a guarded optional `require()` and upgrades the service automatically. If a build strips that lookup, register the native module explicitly in `app/_layout.tsx` with `registerNativeHealthModule(...)`.
 

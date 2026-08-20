@@ -6,11 +6,17 @@
  * `getHealthService()` returns a singleton chosen at runtime:
  *   iOS + `react-native-health` linked      -> Apple HealthKit
  *   Android + `react-native-health-connect` -> Health Connect
- *   anything else (Expo Go, web, tests)     -> deterministic simulated data
+ *   development builds without either       -> deterministic simulated data
+ *   release builds without either           -> an honest "unavailable" service
  *
  * Neither native library is a dependency of this project; they are loaded
  * through a guarded optional require (see `nativeModule.ts`), so the app builds
  * and runs today and upgrades itself the moment one is added to a dev build.
+ *
+ * The simulated provider is deliberately confined to development. It reports
+ * itself as available and grants permission on request, which is exactly what
+ * makes it useful for demos and exactly what would mislead a real user: they
+ * would see invented workouts counted against their real calorie budget.
  */
 import { Platform } from 'react-native';
 
@@ -20,9 +26,19 @@ import { createHealthConnectService } from './healthConnect';
 import { createHealthKitService } from './healthKit';
 import { createMockHealthService } from './mockHealth';
 import { loadNativeHealthModule } from './nativeModule';
-import { HEALTH_PLATFORM_LABELS } from './types';
+import { HEALTH_PLATFORM_LABELS, REAL_HEALTH_PLATFORMS } from './types';
+import { createUnavailableHealthService } from './unavailableHealth';
 
 let instance: HealthService | null = null;
+
+/** True in development/test bundles; React Native defines it globally. */
+function isDevBuild(): boolean {
+  try {
+    return typeof __DEV__ !== 'undefined' && __DEV__ === true;
+  } catch {
+    return false;
+  }
+}
 
 /** Picks the best provider for this runtime. Never throws. */
 function createHealthService(): HealthService {
@@ -35,9 +51,9 @@ function createHealthService(): HealthService {
       }
     }
   } catch {
-    // Fall through to the simulator.
+    // Fall through to the non-native providers.
   }
-  return createMockHealthService();
+  return isDevBuild() ? createMockHealthService() : createUnavailableHealthService();
 }
 
 /** Process-wide singleton health service. */
@@ -58,10 +74,10 @@ export function setHealthService(service: HealthService | null): void {
 
 /** True when a real platform integration (not the simulator) is active. */
 export function isHealthSupported(): boolean {
-  return getHealthService().platform !== 'mock';
+  return REAL_HEALTH_PLATFORMS.includes(getHealthService().platform);
 }
 
-/** 'Apple Health' | 'Health Connect' | 'Simulated Health Data'. */
+/** 'Apple Health' | 'Health Connect' | 'Simulated Health Data' | 'Health sync'. */
 export function healthPlatformLabel(): string {
   return HEALTH_PLATFORM_LABELS[getHealthService().platform];
 }
@@ -73,12 +89,18 @@ export {
   HEALTH_PERMISSIONS,
   HEALTH_PLATFORM_LABELS,
   MAX_SYNC_DAYS,
+  REAL_HEALTH_PLATFORMS,
   dayWindow,
   emptyDaySummary,
   enumerateDates,
   isISODate,
 } from './types';
 export type { HealthDaySyncResult, HealthPlatform, HealthRangeSyncResult } from './types';
+
+export {
+  UnavailableHealthService,
+  createUnavailableHealthService,
+} from './unavailableHealth';
 
 export { MockHealthService, buildMockDaySummary, createMockHealthService } from './mockHealth';
 export {

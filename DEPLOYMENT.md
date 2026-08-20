@@ -135,35 +135,49 @@ eas submit --profile production --platform android
 eas submit --profile production --platform ios
 ```
 
-Android currently submits as a draft to the internal track. Move it through Google Play tracks only after the release blocker below is resolved.
+Android currently submits as a draft to the internal track.
 
-## Release blocker: Android Health Connect permissions
+## Resolved: Android Health Connect permissions
 
-`app.json` lines 37-46 request Android Health Connect permissions:
+**Decision: health integration is deferred to a later release (option 2 below).**
 
-- `android.permission.health.READ_STEPS`
-- `android.permission.health.READ_ACTIVE_CALORIES_BURNED`
-- `android.permission.health.READ_TOTAL_CALORIES_BURNED`
-- `android.permission.health.READ_EXERCISE`
-- `android.permission.health.READ_DISTANCE`
-- `android.permission.health.READ_WEIGHT`
-- `android.permission.health.WRITE_WEIGHT`
+`app.json` now declares only `android.permission.CAMERA`, and the iOS
+`NSHealthShareUsageDescription` / `NSHealthUpdateUsageDescription` strings have
+been removed. Both stores reject health permissions that are not backed by
+working functionality, and this build has none: `react-native-health` and
+`react-native-health-connect` are not dependencies.
 
-The shipped app resolves health data through an optional native module loader (`src/services/health/nativeModule.ts`) and falls back to a simulated provider because `react-native-health` / `react-native-health-connect` are not dependencies. Google Play can reject apps that request Health Connect permissions without genuine declared functionality, a completed Health Connect declaration form, and an in-app privacy policy link.
+Two related changes went with it, so the app does not merely lack the
+permissions but behaves correctly without them:
 
-Choose one option before Google Play submission:
+- A release build with no native library now uses
+  `src/services/health/unavailableHealth.ts` instead of the simulated provider.
+  The simulator reports itself available and grants permission on request; in a
+  user's hands that meant tapping **Connect**, being told it worked, and then
+  seeing invented workouts counted against a real calorie budget.
+- `HealthConnectCard` hides the Connect button and the "MacroTrack will read"
+  list in the unavailable state, and points at manual logging instead.
 
-1. **Ship real Health Connect support.** Add the appropriate native Health Connect library in a separate dependency/code change, implement real permission/data flows, add an in-app privacy policy link, keep app.json lines 39-45, and complete the Google Play Health Connect declaration.
-2. **Defer health integration for the first release.** Remove the Health Connect entries from app.json lines 39-45 and keep only `android.permission.CAMERA` in the Android permissions array. Also remove or adjust store copy that claims Health Connect integration.
+Manual workout logging is unaffected and remains the supported way to record
+burn in this release.
 
-Do not submit to Google Play with the current Health Connect permissions unless option 1 is completed.
+### To re-enable health in a future release
+
+1. Add the native library (`npx expo install react-native-health` for iOS,
+   `react-native-health-connect` for Android) and prebuild.
+2. Restore the Android `android.permission.health.*` entries and the iOS
+   `NSHealth*` usage strings in `app.json`, **in the same change**.
+3. Complete Google Play's Health Connect declaration form and make sure the
+   in-app privacy policy link is live.
+4. Verify `getHealthService().platform` reports `healthkit` / `health_connect`
+   — not `unavailable` — on a real device build.
 
 ## Pre-submission checklist
 
 - [ ] `app.json` and `eas.json` parse as valid JSON.
 - [ ] `npx tsc --noEmit` passes.
 - [ ] `npx expo export -p android` succeeds.
-- [ ] Health Connect release blocker is resolved.
+- [x] Health Connect release blocker is resolved (deferred; permissions removed).
 - [ ] Store assets are validated: iOS icon is `1024x1024` opaque RGB/no alpha; Android adaptive foreground/background are `1024x1024` square PNGs; no unintended alpha-bearing asset is used where stores require opacity.
 - [ ] Splash screen checked on preview/release Android and iOS builds.
 - [ ] `expo.version` bumped for any native runtime change.

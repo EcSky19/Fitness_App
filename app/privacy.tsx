@@ -57,7 +57,11 @@ const POLICY_SECTIONS: PolicySection[] = [
     blocks: [
       {
         type: 'paragraph',
-        text: 'If you connect Apple HealthKit or Android Health Connect, MacroTrack may read steps, active energy, workouts or exercise, distance, and weight, depending on the permissions you grant. MacroTrack can also write weight entries back to the health platform when you choose to use that feature.',
+        text: 'This release does not read from or write to Apple HealthKit or Android Health Connect. MacroTrack requests no health permissions, and no health platform integration is enabled. Workouts and calories burned are only what you enter yourself.',
+      },
+      {
+        type: 'paragraph',
+        text: 'If that integration is enabled in a future release, MacroTrack may read steps, active energy, workouts or exercise, distance, and weight, depending on the permissions you grant, and may write weight entries back to the health platform when you choose to use that feature.',
       },
       {
         type: 'paragraph',

@@ -252,7 +252,7 @@ export interface VisionProvider {
 export type HealthPermissionStatus = 'granted' | 'denied' | 'unavailable' | 'undetermined';
 
 export interface HealthService {
-  readonly platform: 'healthkit' | 'health_connect' | 'mock';
+  readonly platform: 'healthkit' | 'health_connect' | 'mock' | 'unavailable';
   isAvailable(): Promise<boolean>;
   getPermissionStatus(): Promise<HealthPermissionStatus>;
   requestPermissions(): Promise<HealthPermissionStatus>;

@@ -203,11 +203,14 @@ describe('ActivityScreen — health connection', () => {
     expect(Linking.openSettings).toHaveBeenCalled();
   });
 
-  it('explains that simulated data is used when health is unavailable', async () => {
+  it('points at manual logging when health is unavailable, without offering to connect', async () => {
     mockHealthService.getPermissionStatus.mockResolvedValue('unavailable');
     render(<ActivityScreen />);
 
-    expect(await screen.findByText(/simulated health data/i)).toBeTruthy();
+    expect(await screen.findByText(/log your workouts by hand/i)).toBeTruthy();
+    // A build with no health platform must not imply data will appear on its own.
+    expect(screen.queryByText(/simulated/i)).toBeNull();
+    expect(screen.queryByText('Connect')).toBeNull();
   });
 
   it('connects, enables the setting, syncs and then shows the stats', async () => {

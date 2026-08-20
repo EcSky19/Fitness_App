@@ -29,6 +29,8 @@ Your local account is only an on-device account. MacroTrack does not create a cl
 
 ## Health data
 
+**This release does not read from or write to Apple HealthKit or Android Health Connect.** MacroTrack requests no health permissions, and no health platform integration is enabled. Workouts and calories burned are only what you enter yourself. The rest of this section describes how health data would be handled if that integration is enabled in a future release.
+
 If you connect Apple HealthKit or Android Health Connect, MacroTrack may read steps, active energy, workouts or exercise, distance, and weight, depending on the permissions you grant. MacroTrack can also write weight entries back to the health platform when you choose to use that feature.
 
 Health data read from Apple HealthKit or Android Health Connect is used inside the app for tracking and calculations and is stored on your device. MacroTrack does not sell health data, use it for advertising, or send it to a MacroTrack backend.

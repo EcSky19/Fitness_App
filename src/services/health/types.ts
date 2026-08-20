@@ -15,7 +15,14 @@ export const HEALTH_PLATFORM_LABELS: Readonly<Record<HealthPlatform, string>> = 
   healthkit: 'Apple Health',
   health_connect: 'Health Connect',
   mock: 'Simulated Health Data',
+  unavailable: 'Health sync',
 };
+
+/** Platforms backed by real device data. Anything else must not be synced. */
+export const REAL_HEALTH_PLATFORMS: readonly HealthPlatform[] = Object.freeze([
+  'healthkit',
+  'health_connect',
+]);
 
 /** Human readable data types requested from the platform; used by the permission UI. */
 export const HEALTH_PERMISSIONS: readonly string[] = Object.freeze([

@@ -17,8 +17,6 @@
       "bundleIdentifier": "com.macrotrack.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "Allow MacroTrack to read your steps, workouts, energy burned and weight so your daily targets stay accurate.",
-        "NSHealthUpdateUsageDescription": "Allow MacroTrack to save your weight entries to Apple Health.",
         "NSCameraUsageDescription": "Allow MacroTrack to take photos of your food to estimate nutrition.",
         "NSPhotoLibraryUsageDescription": "Allow MacroTrack to access your photos to analyze food images."
       }
@@ -35,14 +33,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.health.READ_STEPS",
-        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
-        "android.permission.health.READ_TOTAL_CALORIES_BURNED",
-        "android.permission.health.READ_EXERCISE",
-        "android.permission.health.READ_DISTANCE",
-        "android.permission.health.READ_WEIGHT",
-        "android.permission.health.WRITE_WEIGHT"
+        "android.permission.CAMERA"
       ]
     },
     "web": {
