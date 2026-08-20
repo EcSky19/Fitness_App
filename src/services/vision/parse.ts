@@ -168,6 +168,15 @@ function truncate(value: string, max = MAX_TEXT_LENGTH): string {
   return value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
 }
 
+/** First usable (non-empty) text across `keys`, so an empty first field can't defeat the fallbacks. */
+function firstText(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = truncate(toText(record[key]));
+    if (value) return value;
+  }
+  return '';
+}
+
 function round(value: number, decimals = 1): number {
   const factor = 10 ** decimals;
   const rounded = Math.round(value * factor) / factor;
@@ -411,7 +420,7 @@ function normalizeItem(raw: unknown, mode: VisionMode, warnings: string[]): Visi
   const nested = isRecord(raw.macros) ? raw.macros : isRecord(raw.nutrition) ? raw.nutrition : null;
   const source: Record<string, unknown> = nested ? { ...raw, ...nested } : raw;
 
-  const name = truncate(toText(pick(source, ['name', 'food', 'item', 'label', 'product', 'description'])));
+  const name = firstText(source, ['name', 'food', 'item', 'label', 'product', 'description']);
   if (!name) return null;
 
   const brandText = truncate(toText(pick(source, ['brand', 'brandName', 'brand_name', 'manufacturer'])));

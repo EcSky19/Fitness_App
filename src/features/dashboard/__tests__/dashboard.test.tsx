@@ -742,4 +742,41 @@ describe('TodayScreen', () => {
     expect(screen.getByText('Today')).toBeTruthy();
     await settle();
   });
+
+  it('ignores a slow health sync for a day the user already moved off', async () => {
+    seedStore({ profile: PROFILE, goal: null, settings: { healthSyncEnabled: true } });
+
+    // Hold the first day's sync open so it can resolve *after* the day the user
+    // actually navigated to. Active energy feeds the calorie budget, so a stale
+    // win here shows the wrong burn under the wrong date.
+    let releaseStale: (() => void) | null = null;
+    health.syncHealthDay
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseStale = () =>
+              resolve({ ok: true, data: { importedWorkouts: 0, activeEnergyKcal: 412, steps: 8321 } });
+          })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { importedWorkouts: 0, activeEnergyKcal: 150, steps: 2222 },
+      });
+
+    await renderDashboard();
+    await waitFor(() => expect(health.syncHealthDay).toHaveBeenCalledWith(TODAY));
+
+    fireEvent.press(screen.getByLabelText('Previous day'));
+    await waitFor(() => expect(health.syncHealthDay).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText('2,222')).toBeTruthy());
+
+    await act(async () => {
+      releaseStale?.();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('2,222')).toBeTruthy();
+    expect(screen.queryByText('8,321')).toBeNull();
+    await settle();
+  });
 });

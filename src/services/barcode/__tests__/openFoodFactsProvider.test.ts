@@ -63,6 +63,25 @@ describe('parseOpenFoodFactsProduct hostile inputs', () => {
     expect(Object.is(parsed?.per100g.fat, -0)).toBe(false);
   });
 
+  it('lets a later nutriment key win when the first one is an empty string', () => {
+    const parsed = parseOpenFoodFactsProduct(
+      product({
+        nutriments: {
+          'energy-kcal_100g': '',
+          calories_100g: 250,
+          proteins_100g: '',
+          proteins: 9,
+          carbohydrates_100g: 30,
+          fat_100g: 4,
+        },
+      }),
+      BARCODE
+    );
+
+    expect(parsed?.per100g.calories).toBe(250);
+    expect(parsed?.per100g.protein).toBe(9);
+  });
+
   it('converts kJ-only energy to kcal', () => {
     const parsed = parseOpenFoodFactsProduct(
       product({
@@ -123,6 +142,41 @@ describe('parseOpenFoodFactsProduct hostile inputs', () => {
     expect(parsed?.name.length).toBeLessThanOrEqual(120);
     expect(parsed?.imageUrl).toBeNull();
     expect(parsed?.per100g).toMatchObject({ calories: 18, protein: 0, carbs: 0, fat: 2 });
+  });
+
+  it('rejects an impossible sodium value the same way it rejects salt', () => {
+    // OFF nutriments are grams per 100 g, so 500 "g" of sodium per 100 g is
+    // physically impossible (> 100 g / 100 g). The salt path already rejects the
+    // same magnitude; the sodium path must too, instead of storing it as a
+    // 1000x-inflated 500,000 mg figure that lands straight in the diary.
+    const bySodium = parseOpenFoodFactsProduct(
+      product({ nutriments: { proteins_100g: 5, carbohydrates_100g: 5, fat_100g: 2, sodium_100g: 500 } }),
+      BARCODE
+    );
+    const bySalt = parseOpenFoodFactsProduct(
+      product({ nutriments: { proteins_100g: 5, carbohydrates_100g: 5, fat_100g: 2, salt_100g: 500 } }),
+      BARCODE
+    );
+
+    expect(bySalt?.per100g.sodium).toBeUndefined();
+    expect(bySodium?.per100g.sodium).toBeUndefined();
+  });
+
+  it('falls back to another name field when product_name is an empty string', () => {
+    // OFF routinely leaves product_name as "" while a usable name lives in
+    // product_name_en / generic_name — the very reason those keys are listed as
+    // fallbacks. An empty first field must not strand the product as "Unnamed
+    // product" in the user's diary.
+    const parsed = parseOpenFoodFactsProduct(
+      product({
+        product_name: '',
+        product_name_en: 'Hazelnut spread',
+        nutriments: { 'energy-kcal_100g': 539, proteins_100g: 6, carbohydrates_100g: 57, fat_100g: 31 },
+      }),
+      BARCODE
+    );
+
+    expect(parsed?.name).toBe('Hazelnut spread');
   });
 
   it('holds calories derived from macros to the same ceiling as a stated figure', () => {

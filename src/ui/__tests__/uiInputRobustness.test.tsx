@@ -5,9 +5,9 @@
  */
 import { render, screen } from '@testing-library/react-native';
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
-import { ListRow, NumberField, StatTile, TextField } from '@/ui';
+import { Card, ListRow, NumberField, StatTile, TextField } from '@/ui';
 
 function flatStyle(node: { props: { style?: unknown } }): Record<string, unknown> {
   return (StyleSheet.flatten(node.props.style as never) ?? {}) as Record<string, unknown>;
@@ -74,5 +74,32 @@ describe('non-pressable rows and tiles', () => {
     const row = screen.getByTestId('row');
     expect(row.props.accessible).toBe(true);
     expect(row.props.accessibilityLabel).toBe('Greek yogurt, 200 g, 180 kcal');
+  });
+
+  // A non-pressable Card with a composed label (e.g. BurnSummaryCard in its
+  // default addExerciseToTarget=true config) must be a single accessibility
+  // element, or iOS ignores the label and reads the inner children one by one.
+  it('Card exposes a non-pressable composed label as one element', () => {
+    render(
+      <Card accessibilityLabel="Calories burned today: 487 kcal" testID="card">
+        <Text>Burned today</Text>
+      </Card>
+    );
+
+    const card = screen.getByTestId('card');
+    expect(card.props.accessible).toBe(true);
+    expect(card.props.accessibilityLabel).toBe('Calories burned today: 487 kcal');
+  });
+
+  // A layout-only Card (the common case) has no label and must NOT collapse its
+  // children into one element, which would hide their individual announcements.
+  it('does not turn a label-less Card into a single accessibility element', () => {
+    render(
+      <Card testID="plain">
+        <Text>child</Text>
+      </Card>
+    );
+
+    expect(screen.getByTestId('plain').props.accessible).not.toBe(true);
   });
 });

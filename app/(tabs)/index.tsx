@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -78,11 +78,21 @@ export default function TodayScreen() {
     [setSelectedDate]
   );
 
+  // Syncing a day is an IPC call to the health platform, so its latency
+  // varies. Without a guard, tapping through days fast can let an older sync
+  // resolve last and show the wrong day's burn — which feeds the calorie
+  // budget on this very screen.
+  const healthSyncRef = useRef(0);
+
   const runHealthSync = useCallback(async () => {
     if (!healthSyncEnabled) return;
+    const requestId = healthSyncRef.current + 1;
+    healthSyncRef.current = requestId;
+    const isCurrent = (): boolean => requestId === healthSyncRef.current;
     setSyncing(true);
     try {
       const result = await syncHealthDay(selectedDate);
+      if (!isCurrent()) return;
       if (result.ok && result.data) {
         setHealth(result.data);
         setSyncError(null);
@@ -91,9 +101,9 @@ export default function TodayScreen() {
         setSyncError(result.error ?? 'Could not sync health data');
       }
     } catch {
-      setSyncError('Could not sync health data');
+      if (isCurrent()) setSyncError('Could not sync health data');
     } finally {
-      setSyncing(false);
+      if (isCurrent()) setSyncing(false);
     }
   }, [healthSyncEnabled, selectedDate, invalidate]);
 

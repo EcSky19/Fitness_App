@@ -203,6 +203,20 @@ describe('hostile values', () => {
     expect(result.items[0]?.macros.calories).toBe(8);
   });
 
+  it('uses an alternate name key instead of dropping an item whose "name" is empty', () => {
+    // Some models put the label under "food"/"label" and leave "name" empty.
+    // Those keys are accepted fallbacks, so the photographed item must survive
+    // rather than be silently dropped as "no name" — that is lost diary data.
+    const raw = JSON.stringify({
+      items: [
+        { name: '', food: 'Pepperoni pizza', estimatedGrams: 200, calories: 500, protein: 20, carbs: 55, fat: 20 },
+      ],
+    });
+    const result = parseVisionJson(raw, 'food_photo');
+
+    expect(result.items.map((i) => i.name)).toContain('Pepperoni pizza');
+  });
+
   it('keeps unicode names intact', () => {
     const raw = JSON.stringify({ items: [{ ...base, name: '🍕 Pizza margherita' }] });
     expect(parseVisionJson(raw, 'food_photo').items[0]?.name).toBe('🍕 Pizza margherita');

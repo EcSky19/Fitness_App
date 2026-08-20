@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, Linking } from 'react-native';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 
 import type { ExerciseEntry, HealthDaySummary } from '@/types';
 
@@ -227,6 +227,48 @@ describe('ActivityScreen — health connection', () => {
     expect(await screen.findByTestId('health-connect-card')).toBeTruthy();
     expect(screen.getByText(/isn't available on this device/i)).toBeTruthy();
     expect(screen.queryByTestId('health-stats-card')).toBeNull();
+  });
+
+  it('ignores a slow health read for a day the user already moved off', async () => {
+    // Reading a day summary is a real IPC call to HealthKit / Health Connect,
+    // so its latency varies. Tapping through days fast can land an older
+    // response last, painting the wrong day's steps and active energy under
+    // the current date — and active energy feeds the calorie budget.
+    connectHealth();
+    const otherDay = '2026-03-09';
+    const staleSummary = { ...daySummary, date: otherDay, steps: 111, activeEnergyKcal: 222 };
+
+    let releaseStale: (() => void) | undefined;
+    mockHealthService.getDaySummary.mockImplementation(async (date: string) => {
+      if (date === otherDay) {
+        await new Promise<void>((resolve) => {
+          releaseStale = resolve;
+        });
+        return staleSummary;
+      }
+      return daySummary;
+    });
+
+    useAppStore.setState({ selectedDate: otherDay });
+    render(<ActivityScreen />);
+    await waitFor(() => expect(releaseStale).toBeDefined());
+
+    // The user moves to today while the previous day's read is still in flight.
+    await act(async () => {
+      useAppStore.setState({ selectedDate: TEST_TODAY });
+    });
+    await waitFor(() => expect(screen.getByTestId('health-stats-card')).toBeTruthy());
+
+    // Now the abandoned day finally answers.
+    await act(async () => {
+      releaseStale?.();
+      await Promise.resolve();
+    });
+
+    const card = within(screen.getByTestId('health-stats-card'));
+    expect(card.getByText('560')).toBeTruthy();
+    expect(card.queryByText('222')).toBeNull();
+    expect(card.queryByText('111')).toBeNull();
   });
 
   it('connects, enables the setting, syncs and then shows the stats', async () => {

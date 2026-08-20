@@ -35,7 +35,12 @@ export function Card({
 
   if (!onPress && !onLongPress) {
     return (
-      <View testID={testID} accessibilityLabel={accessibilityLabel} style={base}>
+      <View
+        testID={testID}
+        accessible={accessibilityLabel ? true : undefined}
+        accessibilityLabel={accessibilityLabel}
+        style={base}
+      >
         {children}
       </View>
     );

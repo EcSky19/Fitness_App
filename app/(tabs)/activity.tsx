@@ -5,7 +5,7 @@
  * missing/denied/failing health integration degrades to "manual logging only"
  * instead of breaking the screen.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
@@ -150,19 +150,31 @@ export default function ActivityScreen(): React.JSX.Element {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<ExerciseEntry | null>(null);
 
+  // Reading a day summary is an IPC call to the health platform, so its
+  // latency varies. Without a guard, tapping through days fast can let an
+  // older read resolve last and paint the wrong day's steps and active energy
+  // under the current date — and active energy feeds the calorie budget.
+  const healthRequestRef = useRef(0);
+
   const loadHealth = useCallback(async () => {
+    const requestId = healthRequestRef.current + 1;
+    healthRequestRef.current = requestId;
+    const isCurrent = (): boolean => requestId === healthRequestRef.current;
     try {
       const service = getHealthService();
       const status = await service.getPermissionStatus();
+      if (!isCurrent()) return;
       setHealthStatus(status);
       if (!healthSyncEnabled || status === 'denied' || status === 'undetermined') {
         setHealthSummary(null);
         return;
       }
       const summary = await service.getDaySummary(selectedDate);
+      if (!isCurrent()) return;
       setHealthSummary(summary ?? null);
       setHealthError(null);
     } catch (error) {
+      if (!isCurrent()) return;
       setHealthSummary(null);
       setHealthError(toMessage(error, 'Could not read health data.'));
     }

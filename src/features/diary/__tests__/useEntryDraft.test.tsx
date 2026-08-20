@@ -19,7 +19,7 @@ import {
   validateEntryDraft,
   type EntryDraftState,
 } from '../useEntryDraft';
-import { makeEntry, makeFood, TODAY } from './harness';
+import { makeEntry, makeFood, makeMacros, TODAY } from './harness';
 import type { ServingUnit } from '@/types';
 
 jest.mock('@/domain', () => require('./harness').domainMock());
@@ -327,6 +327,39 @@ describe('useEntryDraft', () => {
     );
     expect(repos.bumpFoodUsage).toHaveBeenCalledWith('food-1');
     expect(repos.addFoodEntry).not.toHaveBeenCalled();
+  });
+
+  it('keeps a hand-corrected macro as the anchor when an edited food entry is re-scaled', async () => {
+    // Logged earlier: the user overrode the food's numbers to 300 kcal / 30 g
+    // protein for one 150 g serving, so the entry is flagged `wasEdited`.
+    repos.getFoodEntry.mockResolvedValue(
+      makeEntry({
+        id: 'e1',
+        foodId: 'food-1',
+        name: 'Greek yogurt',
+        quantity: 1,
+        unit: 'serving',
+        gramsTotal: 150,
+        macros: makeMacros(300, 30, 12, 15),
+        wasEdited: true,
+      })
+    );
+    // The food record itself only knows 100 kcal / 10 g protein per 100 g,
+    // i.e. 150 kcal for one serving — half of what the user corrected it to.
+    repos.getFood.mockResolvedValue(
+      makeFood({ id: 'food-1', servingSizeG: 150, per100g: { calories: 100, protein: 10, carbs: 4, fat: 5 } })
+    );
+
+    const { result } = renderHook(() => useEntryDraft({ entryId: 'e1' }));
+
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    expect(result.current.state.macros.calories).toBe(300);
+
+    act(() => result.current.setQuantity(2));
+
+    // Two servings of a 300 kcal correction must be 600 kcal, not the food's 300.
+    expect(result.current.state.macros.calories).toBe(600);
+    expect(result.current.state.macros.protein).toBe(60);
   });
 
   it('warns instead of crashing when the entry is gone', async () => {

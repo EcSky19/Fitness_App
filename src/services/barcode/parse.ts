@@ -9,7 +9,6 @@ const MAX_TEXT_LENGTH = 120;
 const MAX_IMAGE_URL_LENGTH = 500;
 const MAX_CALORIES_100G = 1_200;
 const MAX_GRAMS_100G = 100;
-const MAX_SODIUM_MG_100G = 100_000;
 const KJ_PER_KCAL = 4.184;
 
 function pick(record: Record<string, unknown>, keys: string[]): unknown {
@@ -24,6 +23,28 @@ function text(value: unknown, max = MAX_TEXT_LENGTH): string {
   const raw = typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
   if (!raw || raw.toLowerCase() === 'null') return '';
   return raw.length > max ? `${raw.slice(0, max - 1).trimEnd()}…` : raw;
+}
+
+/** First usable (non-empty) text across `keys`, so an empty first field can't defeat the fallbacks. */
+function firstText(record: Record<string, unknown>, keys: string[], max = MAX_TEXT_LENGTH): string {
+  for (const key of keys) {
+    const value = text(record[key], max);
+    if (value) return value;
+  }
+  return '';
+}
+
+/**
+ * First usable (in-range) number across `keys`. Open Food Facts routinely ships
+ * a nutriment as `""` with the real figure under a sibling key, and an unusable
+ * first field must not defeat the fallbacks the way a bare `pick` would.
+ */
+function firstNumber(record: Record<string, unknown>, keys: string[], max: number): number | null {
+  for (const key of keys) {
+    const value = clamp(record[key], max);
+    if (value !== null) return value;
+  }
+  return null;
 }
 
 function firstBrand(value: unknown): string | null {
@@ -46,25 +67,25 @@ function numberValue(value: unknown): number | null {
 }
 
 function macroFromNutriments(nutriments: Record<string, unknown>, base: string): number | null {
-  return clamp(
-    pick(nutriments, [`${base}_100g`, `${base}-100g`, `${base}`]),
-    base === 'sodium' ? MAX_SODIUM_MG_100G : MAX_GRAMS_100G
-  );
+  // Every per-100 g nutriment is grams per 100 g, so 100 is the hard physical
+  // ceiling for all of them — sodium included (its milligram conversion happens
+  // later). A looser sodium bound let unit-error data through as a 1000x figure.
+  return firstNumber(nutriments, [`${base}_100g`, `${base}-100g`, `${base}`], MAX_GRAMS_100G);
 }
 
 function energyKcal100g(nutriments: Record<string, unknown>): number | null {
-  const kcal = clamp(pick(nutriments, ['energy-kcal_100g', 'energy_kcal_100g', 'calories_100g']), MAX_CALORIES_100G);
+  const kcal = firstNumber(nutriments, ['energy-kcal_100g', 'energy_kcal_100g', 'calories_100g'], MAX_CALORIES_100G);
   if (kcal !== null) return kcal;
 
-  const kj = clamp(pick(nutriments, ['energy_100g', 'energy-kj_100g', 'energy_kj_100g']), MAX_CALORIES_100G * KJ_PER_KCAL);
+  const kj = firstNumber(nutriments, ['energy_100g', 'energy-kj_100g', 'energy_kj_100g'], MAX_CALORIES_100G * KJ_PER_KCAL);
   return kj === null ? null : round(kj / KJ_PER_KCAL);
 }
 
 function servingGrams(product: Record<string, unknown>, nutriments?: Record<string, unknown>): number | null {
-  const direct = clamp(pick(product, ['serving_quantity', 'servingQuantity', 'servingSizeG']), 100_000);
+  const direct = firstNumber(product, ['serving_quantity', 'servingQuantity', 'servingSizeG'], 100_000);
   if (direct !== null && direct > 0) return direct;
 
-  const servingSize = text(pick(product, ['serving_size', 'servingSize']), 80);
+  const servingSize = firstText(product, ['serving_size', 'servingSize'], 80);
   const parenthesized = servingSize.match(/\(([^)]*(?:g|ml)[^)]*)\)/i)?.[1];
   const gramsText = parenthesized ?? servingSize;
   const match = gramsText.match(/(\d[\d,.]*|\.\d+)\s*(g|gram|grams|ml|milliliter|milliliters|millilitre|millilitres)\b/i);
@@ -73,12 +94,12 @@ function servingGrams(product: Record<string, unknown>, nutriments?: Record<stri
     if (parsed !== null && parsed > 0 && parsed <= 100_000) return round(parsed);
   }
 
-  const fromNutriments = nutriments ? clamp(pick(nutriments, ['serving_size', 'serving_quantity']), 100_000) : null;
+  const fromNutriments = nutriments ? firstNumber(nutriments, ['serving_size', 'serving_quantity'], 100_000) : null;
   return fromNutriments !== null && fromNutriments > 0 ? fromNutriments : null;
 }
 
 function perServingTo100g(nutriments: Record<string, unknown>, key: string, servingG: number, max: number): number | null {
-  const serving = clamp(pick(nutriments, [`${key}_serving`, `${key}-serving`]), max * (servingG / 100));
+  const serving = firstNumber(nutriments, [`${key}_serving`, `${key}-serving`], max * (servingG / 100));
   return serving === null ? null : round((serving / servingG) * 100);
 }
 
@@ -89,10 +110,10 @@ function buildMacros(nutriments: Record<string, unknown>, servingG: number | nul
 
   let calories = energyKcal100g(nutriments);
   if (calories === null && servingG) {
-    const servingKcal = clamp(pick(nutriments, ['energy-kcal_serving', 'energy_kcal_serving', 'calories_serving']), MAX_CALORIES_100G * (servingG / 100));
+    const servingKcal = firstNumber(nutriments, ['energy-kcal_serving', 'energy_kcal_serving', 'calories_serving'], MAX_CALORIES_100G * (servingG / 100));
     if (servingKcal !== null) calories = round((servingKcal / servingG) * 100);
     else {
-      const servingKj = clamp(pick(nutriments, ['energy_serving', 'energy-kj_serving', 'energy_kj_serving']), MAX_CALORIES_100G * KJ_PER_KCAL * (servingG / 100));
+      const servingKj = firstNumber(nutriments, ['energy_serving', 'energy-kj_serving', 'energy_kj_serving'], MAX_CALORIES_100G * KJ_PER_KCAL * (servingG / 100));
       if (servingKj !== null) calories = round((servingKj / KJ_PER_KCAL / servingG) * 100);
     }
   }
@@ -140,7 +161,7 @@ export function parseOpenFoodFactsProduct(payload: unknown, barcode: string): Ba
   if (!per100g) throw new Error('Missing nutrition data.');
 
   const name =
-    text(pick(product, ['product_name', 'product_name_en', 'generic_name', 'abbreviated_product_name'])) ||
+    firstText(product, ['product_name', 'product_name_en', 'generic_name', 'abbreviated_product_name']) ||
     'Unnamed product';
 
   return {

@@ -572,7 +572,10 @@ function patchFromEntry(entry: FoodEntry, food: Food | null): Partial<EntryDraft
     visionConfidence: entry.visionConfidence,
     loggedAt: entry.loggedAt,
     base: { grams: entry.gramsTotal, quantity: entry.quantity, unit: entry.unit, macros },
-    macrosOverridden: false,
+    // A previously edited entry already holds the user's corrected macros; treat
+    // them as the scaling anchor so a later quantity/unit change keeps the
+    // correction instead of silently re-deriving from the food record.
+    macrosOverridden: entry.wasEdited,
     wasEditedInitially: entry.wasEdited,
   };
 }
