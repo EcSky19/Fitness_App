@@ -5,6 +5,7 @@ import {
   formatDateShort,
   isFutureISO,
   isoToDate,
+  isValidISODate,
   lastNDaysISO,
   rangeISO,
   startOfWeekISO,
@@ -173,5 +174,41 @@ describe('dates — predicates and resilience', () => {
     expect(diffDaysISO('garbage', '2025-01-01')).toBe(0);
     expect(rangeISO('garbage', '2025-01-01')).toEqual([]);
     expect(addDaysISO('2025-01-01', Number.NaN)).toBe('2025-01-01');
+  });
+});
+
+describe('isValidISODate', () => {
+  it.each(['2026-08-19', '2024-02-29', '2000-01-01', '2026-12-31'])(
+    'accepts the real calendar day %s',
+    (value) => {
+      expect(isValidISODate(value)).toBe(true);
+    }
+  );
+
+  // Right shape, no such day: an entry written here is unreachable, because the
+  // diary only ever steps through days that actually exist.
+  it.each(['2026-02-31', '9999-99-99', '2025-02-29', '2026-13-01', '2026-00-10', '2026-08-00'])(
+    'rejects the impossible day %s',
+    (value) => {
+      expect(isValidISODate(value)).toBe(false);
+    }
+  );
+
+  it.each(['19-08-2026', '2026-8-19', '2026-08-19T10:00:00Z', 'today', '', '  '])(
+    'rejects the malformed value %p',
+    (value) => {
+      expect(isValidISODate(value)).toBe(false);
+    }
+  );
+
+  it.each([null, undefined, 20260819, {}, ['2026-08-19']])(
+    'rejects the non-string %p',
+    (value) => {
+      expect(isValidISODate(value)).toBe(false);
+    }
+  );
+
+  it('tolerates surrounding whitespace', () => {
+    expect(isValidISODate('  2026-08-19  ')).toBe(true);
   });
 });

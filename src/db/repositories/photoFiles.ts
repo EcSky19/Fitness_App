@@ -27,8 +27,20 @@ function filenameFromUri(uri: string): string {
   return name.replace(/[^A-Za-z0-9._-]/g, '_') || `photo-${newId()}.jpg`;
 }
 
-/** Copies a food-entry photo into the signed-in account's private photo folder. */
-export function namespaceFoodPhotoUri(uri: string | null, accountId: ID): string | null {
+/**
+ * Copies a food-entry photo into the signed-in account's private photo folder.
+ *
+ * Pass `keepSource` when the same source is about to be namespaced again — one
+ * scan photo is shared by every item detected in it, and removing the source
+ * after the first copy would make every later copy fail, leaving those entries
+ * pointing at a file that no longer exists. The caller is then responsible for
+ * removing the source once, after the last copy.
+ */
+export function namespaceFoodPhotoUri(
+  uri: string | null,
+  accountId: ID,
+  options?: { keepSource?: boolean }
+): string | null {
   const trimmed = uri?.trim() ?? '';
   if (!trimmed || !trimmed.startsWith('file:')) return uri ?? null;
   if (!hasDocumentDirectory()) return uri ?? null;
@@ -41,10 +53,12 @@ export function namespaceFoodPhotoUri(uri: string | null, accountId: ID): string
     const destination = new File(directory, `${newId()}-${filenameFromUri(trimmed)}`);
     source.copy(destination);
 
-    try {
-      source.delete();
-    } catch (error) {
-      logPhotoFileFailure('source cleanup', trimmed, error);
+    if (!options?.keepSource) {
+      try {
+        source.delete();
+      } catch (error) {
+        logPhotoFileFailure('source cleanup', trimmed, error);
+      }
     }
 
     return destination.uri;
@@ -63,5 +77,39 @@ export function deleteFoodPhotoFile(uri: string | null | undefined): void {
     new File(trimmed).delete();
   } catch (error) {
     logPhotoFileFailure('delete', trimmed, error);
+  }
+}
+
+/**
+ * URI prefix of an account's photo folder, or null when it cannot be resolved.
+ *
+ * Callers use this to decide whether a photo path belongs to a given account
+ * without paying the folder-creation cost once per row.
+ */
+export function accountPhotoPrefix(accountId: ID): string | null {
+  if (!accountId || !hasDocumentDirectory()) return null;
+
+  try {
+    return accountPhotoDirectory(accountId).uri;
+  } catch (error) {
+    logPhotoFileFailure('resolve folder', accountId, error);
+    return null;
+  }
+}
+
+/**
+ * Removes an account's entire photo folder.
+ *
+ * Meal photos are the most personal data the app holds, and the privacy policy
+ * promises that deleting an account removes its associated data. Deleting the
+ * rows alone would leave every photo on disk indefinitely.
+ */
+export function deleteAccountPhotoDirectory(accountId: ID): void {
+  if (!accountId || !hasDocumentDirectory()) return;
+
+  try {
+    new Directory(Paths.document, PHOTO_ROOT, accountId).delete();
+  } catch (error) {
+    logPhotoFileFailure('account folder delete', accountId, error);
   }
 }

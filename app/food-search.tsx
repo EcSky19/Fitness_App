@@ -104,6 +104,14 @@ export default function FoodSearchScreen(): React.JSX.Element {
   const results = useMemo(() => data ?? [], [data]);
   const searching = loading || query.trim() !== trimmedQuery;
 
+  const dismiss = useCallback(() => {
+    // Deep links and restored modals can open this picker with nothing behind
+    // it; `back()` is then a no-op that would strand the user here after their
+    // food has already been logged.
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/diary');
+  }, []);
+
   const runWrite = useCallback(
     (write: () => Promise<unknown>) => {
       if (writeInFlightRef.current) return;
@@ -112,7 +120,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
         try {
           await write();
           invalidate();
-          router.back();
+          dismiss();
         } catch (error) {
           Alert.alert('Could not log food', error instanceof Error ? error.message : 'Please try again.');
         } finally {
@@ -120,7 +128,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
         }
       })();
     },
-    [invalidate]
+    [invalidate, dismiss]
   );
 
   const logFoodNow = useCallback(
@@ -335,7 +343,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
         onSelectRecipe={handleLogRecipe}
         onLogged={() => {
           invalidate();
-          router.back();
+          dismiss();
         }}
         onClose={() => setRecipePickerOpen(false)}
       />

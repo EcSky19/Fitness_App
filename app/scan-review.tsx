@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { addFoodEntries, upsertFood } from '@/db/repositories';
-import { addDaysISO, formatDateLabel, todayISO } from '@/domain';
+import { addDaysISO, formatDateLabel, isValidISODate, todayISO } from '@/domain';
 import { DetectedItemCard } from '@/features/scan/DetectedItemCard';
 import { ReviewTotalsFooter } from '@/features/scan/ReviewTotalsFooter';
 import { looksLikeKeyError } from '@/features/scan/ScanErrorCard';
@@ -46,6 +46,17 @@ function coerceMeal(value: string | string[] | undefined): MealType | null {
   return raw && (MEAL_TYPES as string[]).includes(raw) ? (raw as MealType) : null;
 }
 
+/**
+ * A `date` param is untrusted (deep link, restored nav state). Anything that is
+ * not a real calendar day is rejected: `food_entries.date` is written verbatim
+ * and the diary filters on an exact match, so a stray timestamp, locale format
+ * or impossible day would log the meal where nothing ever queries.
+ */
+function coerceDate(value: string | string[] | undefined): ISODate | null {
+  const raw = firstParam(value)?.trim();
+  return raw && isValidISODate(raw) ? raw : null;
+}
+
 function errorText(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error.length > 0) return error;
@@ -67,7 +78,7 @@ export default function ScanReviewScreen(): React.JSX.Element {
   const result = useMemo(() => parseVisionPayload(params.payload), [params.payload]);
   const photoUri = firstParam(params.photoUri) ?? null;
 
-  const [date, setDate] = useState<ISODate>(firstParam(params.date) ?? selectedDate);
+  const [date, setDate] = useState<ISODate>(coerceDate(params.date) ?? selectedDate);
   const [mealType, setMealType] = useState<MealType>(coerceMeal(params.mealType) ?? 'lunch');
   const [warningsHidden, setWarningsHidden] = useState(false);
   const [photoSheet, setPhotoSheet] = useState(false);

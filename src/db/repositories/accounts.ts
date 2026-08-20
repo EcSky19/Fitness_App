@@ -18,6 +18,7 @@ import type { Account, AccountRecord, ID, PasswordHashFields } from '@/types';
 import { newSecureId } from '@/services/auth/ids';
 import { normalizeEmail, parseHash, serializeHash } from '@/services/auth/password';
 import { ensureReady, invalidateStore, textOrNull } from './mappers';
+import { deleteAccountPhotoDirectory } from './photoFiles';
 
 /** Raw `accounts` row exactly as SQLite hands it back. */
 export interface AccountRow {
@@ -351,6 +352,9 @@ export async function deleteAccount(id: ID): Promise<void> {
     await db.runAsync('DELETE FROM accounts WHERE id = ?;', id);
   });
 
+  // After the transaction commits: the file system is not transactional, so a
+  // rollback must never leave entries pointing at deleted photos.
+  deleteAccountPhotoDirectory(id);
   invalidateStore();
 }
 

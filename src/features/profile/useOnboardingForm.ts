@@ -307,9 +307,14 @@ export function useOnboardingForm(options: UseOnboardingFormOptions = {}): Onboa
     if (weightKg === null || goalWeightKg === null) return null;
     const rate = Math.abs(fields.rateKgPerWeek);
     if (rate <= 0) return null;
-    const delta = Math.abs(weightKg - goalWeightKg);
-    if (delta <= 0) return 0;
-    return Math.ceil(delta / rate);
+    const signedDelta = goalWeightKg - weightKg;
+    if (signedDelta === 0) return 0;
+    // The rate is signed: a cut only moves weight down, a bulk only up. When the
+    // goal weight sits on the opposite side of the current weight the pace never
+    // reaches it, so an ETA ("40 weeks to reach 100 kg" while cutting) would be a
+    // confident lie — withhold it rather than time the absolute gap.
+    if (Math.sign(signedDelta) !== Math.sign(fields.rateKgPerWeek)) return null;
+    return Math.ceil(Math.abs(signedDelta) / rate);
   }, [fields.rateKgPerWeek, goalWeightKg, weightKg]);
 
   /* ---------------------------------------------------------------------- */

@@ -111,7 +111,12 @@ export function TextField({
       </View>
 
       {error ? (
-        <Text style={[typography.caption, styles.hint, { color: colors.danger }]}>{error}</Text>
+        <Text
+          accessibilityRole="alert"
+          style={[typography.caption, styles.hint, { color: colors.danger }]}
+        >
+          {error}
+        </Text>
       ) : helper ? (
         <Text style={[typography.caption, styles.hint, { color: colors.textFaint }]}>{helper}</Text>
       ) : null}

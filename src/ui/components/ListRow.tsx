@@ -71,7 +71,7 @@ export function ListRow({
 
   if (!onPress && !onLongPress) {
     return (
-      <View testID={testID} accessibilityLabel={a11yLabel} style={base}>
+      <View testID={testID} accessible accessibilityLabel={a11yLabel} style={base}>
         {body}
       </View>
     );

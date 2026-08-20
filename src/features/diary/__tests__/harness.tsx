@@ -157,6 +157,11 @@ export function domainMock(): Record<string, unknown> {
     (m?.protein ?? 0) * 4 + (m?.carbs ?? 0) * 4 + (m?.fat ?? 0) * 9;
 
   return {
+    // Real implementations first: the overrides below exist only to pin "today"
+    // and keep assertions readable. Anything else -- including pure helpers
+    // added to the domain later -- must be the genuine function, otherwise this
+    // mock silently omits it and the screen crashes only under test.
+    ...(jest.requireActual('@/domain') as Record<string, unknown>),
     emptyMacros,
     sumMacros,
     scaleMacros,
@@ -170,27 +175,43 @@ export function domainMock(): Record<string, unknown> {
     clamp: (n: number, min: number, max: number) => Math.min(Math.max(n, min), max),
     formatMacroG: (g: number) => `${roundTo(g, 1)} g`,
     formatEnergy: (kcal: number) => `${Math.round(kcal)} kcal`,
+    // This mock stands in for the real `buildDailySummary`, so it has to mirror
+    // its semantics exactly. A mock that is merely "close" lets a production
+    // regression pass here -- in particular the `addExerciseToTarget` default,
+    // which is OFF upstream: getting it backwards would hide a bug where the
+    // flag stopped being threaded through and exercise silently stopped
+    // extending the budget.
     buildDailySummary: ({ date, entries, exercises, targets, addExerciseToTarget }: any) => {
       const consumed = sumMacros(entries ?? []);
       const meals: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack'];
       const byMeal: Record<string, Macros> = {};
       for (const meal of meals) {
-        byMeal[meal] = sumMacros((entries ?? []).filter((e: FoodEntry) => e.mealType === meal));
+        byMeal[meal] = sumMacros(
+          (entries ?? []).filter((e: FoodEntry) =>
+            // Upstream files an unrecognised meal type under `snack` rather than
+            // discarding the entry, so its calories still reach the day total.
+            meals.includes(e.mealType) ? e.mealType === meal : meal === 'snack'
+          )
+        );
       }
-      const exerciseBurned = (exercises ?? []).reduce(
-        (total: number, e: any) => total + (e?.caloriesBurned ?? 0),
-        0
+      const exerciseBurned = roundTo(
+        (exercises ?? []).reduce(
+          (total: number, e: any) => total + Math.max(0, Number(e?.caloriesBurned) || 0),
+          0
+        ),
+        2
       );
-      const includeExercise = addExerciseToTarget !== false;
+      const includeExercise = Boolean(addExerciseToTarget);
       return {
         date,
         consumed,
         byMeal,
         exerciseBurned,
         targets,
-        netCalories: consumed.calories - exerciseBurned,
-        remainingCalories:
-          targets.calories - consumed.calories + (includeExercise ? exerciseBurned : 0),
+        netCalories: Math.round(consumed.calories - exerciseBurned),
+        remainingCalories: Math.round(
+          targets.calories - consumed.calories + (includeExercise ? exerciseBurned : 0)
+        ),
         entryCount: (entries ?? []).length,
       };
     },

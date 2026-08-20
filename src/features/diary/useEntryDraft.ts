@@ -27,7 +27,7 @@ import {
   updateFoodEntry,
   upsertFood,
 } from '@/db/repositories';
-import { macrosToCalories, roundTo, scaleMacros, todayISO } from '@/domain';
+import { macrosToCalories, roundTo, scaleMacros, todayISO, isValidISODate } from '@/domain';
 import {
   QUICK_ADD_UNITS,
   resolveFoodById,
@@ -187,10 +187,10 @@ export function isServingUnit(value: unknown): value is ServingUnit {
   return typeof value === 'string' && (SERVING_UNITS as string[]).includes(value);
 }
 
-/** `'YYYY-MM-DD'` or `undefined`. */
+/** `'YYYY-MM-DD'` or `undefined`. Rejects shapes that name no real day. */
 export function normalizeDateParam(value: RouteParamValue): ISODate | undefined {
-  const raw = firstParam(value);
-  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+  const raw = firstParam(value)?.trim();
+  return raw && isValidISODate(raw) ? raw : undefined;
 }
 
 export function normalizeMealParam(value: RouteParamValue): MealType | undefined {

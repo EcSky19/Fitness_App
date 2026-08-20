@@ -48,7 +48,7 @@ import {
   weightLogToRow,
   type BindValue,
 } from './mappers';
-import { deleteFoodPhotoFile } from './photoFiles';
+import { deleteFoodPhotoFile, accountPhotoPrefix } from './photoFiles';
 import { SETTINGS_KEYS } from './settings';
 
 export interface ImportOptions {
@@ -98,6 +98,21 @@ interface ExportPayload {
 }
 
 type Db = Awaited<ReturnType<typeof ensureReady>>;
+
+/**
+ * Keeps an imported photo path only when it points inside the importing
+ * account's own folder.
+ *
+ * Anything else refers to a file the backup never contained: another account's
+ * private photo on this device, or a path that does not exist on a fresh
+ * install. Dropping it shows the entry without an image, which is honest, in
+ * preference to exposing someone else's photo or rendering a broken one.
+ */
+function importedPhotoUri(uri: string | null, prefix: string | null): string | null {
+  const trimmed = uri?.trim() ?? '';
+  if (!trimmed || !prefix) return null;
+  return trimmed.startsWith(prefix) ? trimmed : null;
+}
 
 const FOOD_INSERT_COLUMNS = [...COLUMNS.foods, ACCOUNT_ID_COLUMN];
 const FOOD_ENTRY_INSERT_COLUMNS = [...COLUMNS.food_entries, ACCOUNT_ID_COLUMN];
@@ -749,6 +764,11 @@ export async function importAllData(
   // Photos of rows cleared in replace mode; deleted only after the transaction
   // commits so a rolled-back import never orphans a restored entry's photo.
   const photosToDelete: string[] = [];
+  // A backup is JSON: it carries photo paths, never the image files. Only a path
+  // already inside this account's own folder refers to a file that actually
+  // exists and belongs to the importing user.
+  const photoPrefix = accountPhotoPrefix(accountId);
+  let droppedPhotos = 0;
 
   await runInTransaction(db, async () => {
     if (mode === 'replace') await clearAccountData(db, accountId, photosToDelete);
@@ -832,10 +852,12 @@ export async function importAllData(
         warn(warnings, 'foodEntries', i, `skipped because food '${entry.foodId}' was not imported or visible.`);
         continue;
       }
+      const photoUri = importedPhotoUri(entry.photoUri, photoPrefix);
+      if (entry.photoUri && !photoUri) droppedPhotos += 1;
       await db.runAsync(
         insertSql(TABLES.foodEntries, FOOD_ENTRY_INSERT_COLUMNS),
         ...toBindValues(
-          { ...foodEntryToRow({ ...entry, id: remap.id, foodId }), [ACCOUNT_ID_COLUMN]: accountId },
+          { ...foodEntryToRow({ ...entry, id: remap.id, foodId, photoUri }), [ACCOUNT_ID_COLUMN]: accountId },
           FOOD_ENTRY_INSERT_COLUMNS
         )
       );
@@ -980,6 +1002,12 @@ export async function importAllData(
 
   // The import committed: now it is safe to delete the replaced photos.
   for (const uri of photosToDelete) deleteFoodPhotoFile(uri);
+
+  if (droppedPhotos > 0) {
+    warnings.push(
+      `foodEntries: ${droppedPhotos} photo${droppedPhotos === 1 ? '' : 's'} could not be restored because backup files do not include images.`
+    );
+  }
 
   invalidateStore();
   return { mode, counts, warnings };

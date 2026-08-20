@@ -1,14 +1,16 @@
 import type { ISODate, MealType, Recipe, RecipeItem } from '@/types';
 import { MEAL_TYPES } from '@/types/constants';
-import { todayISO, roundTo, formatEnergy, formatMacroG } from '@/domain';
+import { todayISO, roundTo, formatEnergy, formatMacroG, isValidISODate } from '@/domain';
 
 export function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
 export function normalizeDateParam(value: string | string[] | undefined): ISODate | null {
-  const raw = firstParam(value);
-  return raw && /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : null;
+  // A timestamp is still a usable day, but the day itself must be real:
+  // `2026-02-31` has the right shape and names no date the diary can reach.
+  const candidate = firstParam(value)?.trim().slice(0, 10) ?? '';
+  return isValidISODate(candidate) ? candidate : null;
 }
 
 export function normalizeMealParam(value: string | string[] | undefined): MealType | null {

@@ -101,12 +101,24 @@ export async function prepareFoodEntriesForInsert(
   dbArg?: Awaited<ReturnType<typeof ensureReady>>
 ): Promise<FoodEntry[]> {
   const db = dbArg ?? (await ensureReady());
-  return Promise.all(inputs.map(async (input) => {
+  // Every item detected in one scan carries the same source photo. Namespacing
+  // copies the file and then removes the source, so the source has to survive
+  // until the last copy has been made -- otherwise every entry after the first
+  // keeps a URI pointing at a file that has just been deleted.
+  const consumedSources = new Set<string>();
+  const entries = await Promise.all(inputs.map(async (input) => {
     const entry = buildEntry(input, now);
     entry.foodId = await visibleFoodIdOrNull(entry.foodId, accountId, db);
-    entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId);
+    const source = entry.photoUri;
+    entry.photoUri = namespaceFoodPhotoUri(entry.photoUri, accountId, { keepSource: true });
+    // Only when the copy actually moved the file: an unchanged URI means the
+    // entry still points at the source, which must therefore be kept.
+    if (source && entry.photoUri && entry.photoUri !== source) consumedSources.add(source);
     return entry;
   }));
+
+  for (const source of consumedSources) deleteFoodPhotoFile(source);
+  return entries;
 }
 
 export async function insertPreparedFoodEntries(
@@ -276,9 +288,31 @@ export async function deleteFoodEntry(id: ID): Promise<void> {
     id,
     accountId
   );
-  deleteFoodPhotoFile(row?.photo_uri);
   await db.runAsync('DELETE FROM food_entries WHERE id = ? AND account_id = ?;', id, accountId);
+  // Only after the row is gone. The file system is not transactional, so
+  // deleting the photo first would leave the entry pointing at a missing image
+  // if the DELETE failed (locked database, full disk).
+  await deleteUnreferencedPhoto(db, row?.photo_uri);
   invalidateStore();
+}
+
+/**
+ * Removes a photo file only once no entry still points at it. Repeating a meal
+ * reuses the original photo URI rather than duplicating the file, so several
+ * entries can share one image and deleting any single one of them must leave
+ * the others intact.
+ */
+async function deleteUnreferencedPhoto(
+  db: Awaited<ReturnType<typeof ensureReady>>,
+  photoUri: string | null | undefined
+): Promise<void> {
+  if (!photoUri) return;
+  const stillUsed = await db.getFirstAsync<{ id: ID }>(
+    'SELECT id FROM food_entries WHERE photo_uri = ? LIMIT 1;',
+    photoUri
+  );
+  if (stillUsed) return;
+  deleteFoodPhotoFile(photoUri);
 }
 
 export async function repeatEntries(input: {

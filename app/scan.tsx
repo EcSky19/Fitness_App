@@ -5,7 +5,7 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { formatDateLabel } from '@/domain';
+import { formatDateLabel, isValidISODate } from '@/domain';
 import { AnalyzingOverlay } from '@/features/scan/AnalyzingOverlay';
 import { CameraOverlay } from '@/features/scan/CameraOverlay';
 import { ScanErrorCard } from '@/features/scan/ScanErrorCard';
@@ -29,6 +29,16 @@ function coerceMeal(value: string | string[] | undefined): MealType | null {
   return raw && (MEAL_TYPES as string[]).includes(raw) ? (raw as MealType) : null;
 }
 
+/**
+ * A `date` param is untrusted (deep link, restored nav state). Anything that is
+ * not a real calendar day is rejected so it never reaches the diary write via
+ * scan-review, where `food_entries.date` is matched exactly.
+ */
+function coerceDate(value: string | string[] | undefined): ISODate | null {
+  const raw = firstParam(value)?.trim();
+  return raw && isValidISODate(raw) ? raw : null;
+}
+
 /** breakfast before 10:30, lunch before 15:00, dinner before 21:00, else snack. */
 export function inferMealType(now: Date = new Date()): MealType {
   const minutes = now.getHours() * 60 + now.getMinutes();
@@ -49,7 +59,7 @@ export default function ScanScreen(): React.JSX.Element {
   const selectedDate = useAppStore((s) => s.selectedDate);
   const { colors, spacing, typography } = useTheme();
 
-  const [date] = useState<ISODate>(firstParam(params.date) ?? selectedDate);
+  const [date] = useState<ISODate>(coerceDate(params.date) ?? selectedDate);
   const [mealType, setMealType] = useState<MealType>(coerceMeal(params.mealType) ?? inferMealType());
   const [mode, setMode] = useState<VisionMode>('food_photo');
   const [torch, setTorch] = useState(false);

@@ -312,6 +312,31 @@ describe('useOnboardingForm — plan and payload', () => {
     expect(result.current.weeksToGoal).toBe(10);
   });
 
+  it('offers no ETA when the goal weight contradicts the pace direction', () => {
+    const { result } = renderHook(() => useOnboardingForm());
+    fillValidProfile(result); // cutting from 80 kg
+    // A cut only lowers weight, so a goal weight ABOVE the current weight is
+    // never reached at this pace. "About 40 weeks to reach 100 kg" would be a
+    // confident lie, so the ETA must be withheld rather than computed from the
+    // absolute gap.
+    act(() => result.current.set('goalWeightInput', 100));
+    expect(result.current.goalWeightKg).toBeCloseTo(100, 1);
+    expect(result.current.weeksToGoal).toBeNull();
+  });
+
+  it('applies the same pace-direction rule to a bulk goal', () => {
+    const { result } = renderHook(() => useOnboardingForm());
+    fillValidProfile(result);
+    act(() => result.current.setGoalType('bulk')); // gaining from 80 kg
+    // A goal weight below the current weight is unreachable while bulking.
+    act(() => result.current.set('goalWeightInput', 70));
+    expect(result.current.weeksToGoal).toBeNull();
+    // A heavier goal weight lies in the pace direction, so an ETA returns.
+    act(() => result.current.set('goalWeightInput', 85));
+    expect(result.current.weeksToGoal).not.toBeNull();
+    expect(result.current.weeksToGoal ?? 0).toBeGreaterThan(0);
+  });
+
   it('returns null from buildPayload while required fields are missing', () => {
     const { result } = renderHook(() => useOnboardingForm());
     expect(result.current.buildPayload()).toBeNull();

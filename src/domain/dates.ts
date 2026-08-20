@@ -68,6 +68,23 @@ export function todayISO(): ISODate {
 }
 
 /**
+ * True when `d` is a real calendar day written as `YYYY-MM-DD`.
+ *
+ * Stricter than a shape check: `2026-02-31` and `9999-99-99` have the right
+ * shape but name no actual day, so they round-trip to something else. Entries
+ * written on such a date are unreachable — the diary steps through real days
+ * and would never query them again — so untrusted input (deep links, restored
+ * navigation state, imported files) must be validated with this.
+ */
+export function isValidISODate(d: unknown): d is ISODate {
+  if (typeof d !== 'string') return false;
+  const trimmed = d.trim();
+  const parts = parseParts(trimmed);
+  if (!parts) return false;
+  return toISO(new Date(parts.year, parts.month - 1, parts.day)) === trimmed;
+}
+
+/**
  * Parse `'YYYY-MM-DD'` to **local midnight**.
  * Invalid input falls back to today's local midnight (never an `Invalid Date`).
  */

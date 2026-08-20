@@ -38,7 +38,7 @@ export function StatTile({
             <Ionicons name={icon} size={14} color={accent} />
           </View>
         ) : null}
-        <Text numberOfLines={1} style={[typography.caption, { color: colors.textMuted }]}>
+        <Text numberOfLines={1} style={[typography.caption, styles.label, { color: colors.textMuted }]}>
           {label}
         </Text>
       </View>
@@ -63,7 +63,7 @@ export function StatTile({
 
   if (!onPress) {
     return (
-      <View testID={testID} accessibilityLabel={a11yLabel} style={base}>
+      <View testID={testID} accessible accessibilityLabel={a11yLabel} style={base}>
         {body}
       </View>
     );
@@ -95,6 +95,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: spacing.xs,
     width: 22,
+  },
+  // Without this the caption keeps its full intrinsic width beside the icon and
+  // overflows the tile (onto the next tile) once the label or the font is long.
+  label: {
+    flexShrink: 1,
   },
   pressed: {
     opacity: 0.75,
