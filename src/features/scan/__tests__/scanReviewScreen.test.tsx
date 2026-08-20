@@ -239,4 +239,29 @@ describe('scan review screen', () => {
     expect(screen.getByText('database is locked')).toBeTruthy();
     expect(screen.getByDisplayValue('Grilled chicken breast')).toBeTruthy();
   });
+
+  /**
+   * An excluded item is dimmed to 0.4 and made inert with pointerEvents="none".
+   * A screen-reader user gets neither cue: without hiding the subtree they can
+   * still swipe into every field and edit nothing, because the taps are eaten.
+   */
+  it("hides an excluded item's inert fields from screen readers", () => {
+    renderReview();
+
+    const cardBefore = screen.getByTestId('item-card-scan-item-1');
+    const bodyBefore = cardBefore.findAll(
+      (node: any) => node.props?.pointerEvents === 'auto'
+    )[0];
+    expect(bodyBefore.props.accessibilityElementsHidden).toBe(false);
+    expect(bodyBefore.props.importantForAccessibility).toBe('auto');
+
+    fireEvent.press(screen.getByTestId(RICE_TOGGLE));
+
+    const cardAfter = screen.getByTestId('item-card-scan-item-1');
+    const bodyAfter = cardAfter.findAll(
+      (node: any) => node.props?.pointerEvents === 'none'
+    )[0];
+    expect(bodyAfter.props.accessibilityElementsHidden).toBe(true);
+    expect(bodyAfter.props.importantForAccessibility).toBe('no-hide-descendants');
+  });
 });

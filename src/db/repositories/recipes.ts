@@ -25,6 +25,7 @@ import {
   prepareFoodEntriesForInsert,
   type NewFoodEntry,
 } from './foodEntries';
+import { deleteFoodPhotoFile, namespaceFoodPhotoUri } from './photoFiles';
 
 interface RecipeRow {
   id: string;
@@ -360,10 +361,28 @@ export async function saveRecipe(input: {
 }): Promise<Recipe> {
   const db = await ensureReady();
   const accountId = requireCurrentAccountId('saveRecipe');
+
+  // Recipe photos live in the same per-account folder as meal photos, so that
+  // deleting the account removes them too and a restored backup can never point
+  // one account at another account's files.
+  const previous = input.id
+    ? await db.getFirstAsync<{ photo_uri: string | null }>(
+        'SELECT photo_uri FROM recipes WHERE id = ? AND account_id = ?;',
+        input.id,
+        accountId
+      )
+    : null;
+  const photoUri =
+    input.photoUri === undefined ? undefined : namespaceFoodPhotoUri(input.photoUri, accountId);
+
   let recipe!: Recipe;
   await runInTransaction(db, async () => {
-    recipe = await writeRecipe(db, accountId, input);
+    recipe = await writeRecipe(db, accountId, { ...input, photoUri });
   });
+
+  const replaced = previous?.photo_uri ?? null;
+  if (replaced && replaced !== recipe.photoUri) deleteFoodPhotoFile(replaced);
+
   invalidateStore();
   return recipe;
 }
@@ -372,7 +391,14 @@ export async function deleteRecipe(id: ID): Promise<void> {
   const db = await ensureReady();
   const accountId = currentAccountScope();
   if (!accountId) return;
+  const row = await db.getFirstAsync<{ photo_uri: string | null }>(
+    'SELECT photo_uri FROM recipes WHERE id = ? AND account_id = ?;',
+    id,
+    accountId
+  );
   await db.runAsync('DELETE FROM recipes WHERE id = ? AND account_id = ?;', id, accountId);
+  // Each pick is copied to its own file, so nothing else can reference it.
+  deleteFoodPhotoFile(row?.photo_uri ?? null);
   invalidateStore();
 }
 

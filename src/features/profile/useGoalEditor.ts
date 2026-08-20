@@ -247,9 +247,18 @@ export function useGoalEditor({
   const [override, setOverride] = useState<ManualOverride>(() =>
     goal?.isManualOverride && goal.targets ? overrideFromTargets(goal.targets) : { ...EMPTY_OVERRIDE }
   );
-  const [weightKg, setWeightKgState] = useState<number>(
-    latestWeightKg ?? profile?.currentWeightKg ?? 0
-  );
+  const sourceWeightKg = latestWeightKg ?? profile?.currentWeightKg ?? 0;
+  const [weightKg, setWeightKgState] = useState<number>(sourceWeightKg);
+
+  const lastSourceWeightRef = useRef<number>(sourceWeightKg);
+  if (lastSourceWeightRef.current !== sourceWeightKg) {
+    // The profile and latest weigh-in load asynchronously and can change while
+    // this hook stays mounted (bootstrap, sign-in, account switch). Follow the
+    // new source weight so the plan is never derived from a stale — or zero —
+    // weight, which would otherwise blank the plan and hide an active goal.
+    lastSourceWeightRef.current = sourceWeightKg;
+    if (sourceWeightKg > 0) setWeightKgState(sourceWeightKg);
+  }
 
   const baseTargetsRef = useRef<MacroTargets | null>(goal?.targets ?? null);
   const lastGoalRef = useRef<Goal | null>(goal ?? null);

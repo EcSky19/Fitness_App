@@ -37,6 +37,15 @@ export interface WorkoutFormOptions {
   entry?: ExerciseEntry | null;
 }
 
+/** Upper bounds shared by the form fields and the saved payload. */
+export const MAX_DURATION_MIN = 1440;
+export const MAX_CALORIES_BURNED = 20000;
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
 export interface WorkoutFormValues {
   activityId: string | null;
   name: string;
@@ -196,8 +205,10 @@ export function useWorkoutForm(options: WorkoutFormOptions): WorkoutForm {
       date: values.date,
       name: values.name.trim(),
       category: values.category,
-      durationMin: values.durationMin ?? 0,
-      caloriesBurned: calories,
+      // NumberField clamps on blur only, so saving straight from a focused
+      // field can deliver anything. An absurd burn feeds the daily target.
+      durationMin: clamp(values.durationMin ?? 0, 0, MAX_DURATION_MIN),
+      caloriesBurned: clamp(calories, 0, MAX_CALORIES_BURNED),
       source: 'manual',
       externalId: null,
       notes: notes.length > 0 ? notes : null,

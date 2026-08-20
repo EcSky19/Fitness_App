@@ -1,3 +1,4 @@
+import * as ImagePicker from 'expo-image-picker';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -152,6 +153,7 @@ export function RecipeEditForm({ recipeId, onDone }: RecipeEditFormProps): React
   const [defaultMeal, setDefaultMeal] = useState<MealChoice>(NONE_MEAL);
   const [notes, setNotes] = useState('');
   const [photoUri, setPhotoUri] = useState('');
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [items, setItems] = useState<DraftItem[]>([]);
   const [editingItem, setEditingItem] = useState<DraftItem | null>(null);
   const [saving, setSaving] = useState(false);
@@ -189,6 +191,24 @@ export function RecipeEditForm({ recipeId, onDone }: RecipeEditFormProps): React
   const handleKindChange = useCallback((next: RecipeKind) => {
     setKind(next);
     if (next === 'meal') setServings(1);
+  }, []);
+
+  const pickPhoto = useCallback(() => {
+    void (async () => {
+      setPhotoError(null);
+      try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.6,
+          allowsMultipleSelection: false,
+        });
+        if (result.canceled) return;
+        const uri = result.assets?.[0]?.uri;
+        if (uri) setPhotoUri(uri);
+      } catch {
+        setPhotoError('Could not open your photo library.');
+      }
+    })();
   }, []);
 
   const handleSaveItem = useCallback((item: DraftItem) => {
@@ -281,8 +301,22 @@ export function RecipeEditForm({ recipeId, onDone }: RecipeEditFormProps): React
       <View style={{ height: spacing.md }} />
       <TextField testID="recipe-notes" label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Prep notes, brand swaps, oven time…" multiline />
       <View style={{ height: spacing.md }} />
-      <TextField testID="recipe-photo-uri" label="Photo URI (optional)" value={photoUri} onChangeText={setPhotoUri} placeholder="file:///…" />
-      {photoUri.trim() ? <Image testID="recipe-photo" source={{ uri: photoUri.trim() }} style={[styles.photo, { borderColor: colors.border, marginTop: spacing.md }]} resizeMode="cover" /> : null}
+      <Text style={[typography.label, { color: colors.textMuted }]}>Photo (optional)</Text>
+      {photoUri.trim() ? <Image testID="recipe-photo" source={{ uri: photoUri.trim() }} style={[styles.photo, { borderColor: colors.border, marginTop: spacing.sm }]} resizeMode="cover" /> : null}
+      <View style={styles.photoActions}>
+        <Button
+          testID="recipe-photo-pick"
+          title={photoUri.trim() ? 'Change photo' : 'Add photo'}
+          variant="secondary"
+          icon="image-outline"
+          size="sm"
+          onPress={pickPhoto}
+        />
+        {photoUri.trim() ? (
+          <Button testID="recipe-photo-remove" title="Remove photo" variant="ghost" icon="trash-outline" size="sm" onPress={() => setPhotoUri('')} />
+        ) : null}
+      </View>
+      {photoError ? <Text testID="recipe-photo-error" style={[typography.caption, { color: colors.danger }]}>{photoError}</Text> : null}
 
       <View style={{ height: spacing.lg }} />
       <Card testID="recipe-totals">
@@ -335,6 +369,7 @@ const styles = StyleSheet.create({
   itemButtons: { alignItems: 'center', flexDirection: 'row', gap: 6, marginLeft: 8 },
   loading: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingVertical: 48 },
   photo: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, height: 160, width: '100%' },
+  photoActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   sectionTitle: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   twoCols: { flexDirection: 'row', gap: 12 },
 });

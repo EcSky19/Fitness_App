@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import React from 'react';
 import { Alert } from 'react-native';
 
+import * as ImagePicker from 'expo-image-picker';
+
 import RecipeEditScreen from '../../../../app/recipe-edit';
 import RecipesScreen from '../../../../app/recipes';
 import { RecipePicker } from '../RecipePicker';
@@ -11,6 +13,7 @@ import type { FoodEntry, Macros, Recipe, RecipeItem } from '@/types';
 jest.mock('@/ui', () => require('@/features/diary/__tests__/harness').uiMock());
 jest.mock('@/hooks/useAsyncData', () => require('@/features/diary/__tests__/harness').asyncDataMock(), { virtual: true });
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn() }));
 jest.mock('expo-router', () => require('@/features/diary/__tests__/harness').routerMock());
 
 jest.mock('@/domain', () => {
@@ -57,6 +60,7 @@ jest.mock('@/db/repositories', () => ({
 }));
 
 const mockRepoFns = jest.requireMock('@/db/repositories') as Record<string, jest.Mock>;
+const mockedLibrary = ImagePicker.launchImageLibraryAsync as unknown as jest.Mock;
 
 const routerModule = jest.requireMock('expo-router') as {
   __setParams: (params: Record<string, unknown>) => void;
@@ -269,6 +273,54 @@ describe('recipe editor', () => {
     const saved = mockRepoFns.saveRecipe.mock.calls[0][0];
     expect(saved.items).toHaveLength(2);
     expect(saved.items.map((it: { name: string }) => it.name)).toEqual(['Milk', 'Banana']);
+  });
+
+  /**
+   * The photo used to be a raw "Photo URI" text box asking people to type
+   * `file:///…`, which no real user can do. It has to be a picker.
+   */
+  it('attaches a photo through the image picker rather than a typed path', async () => {
+    mockRepoFns.getRecipe.mockResolvedValue(recipe());
+    await renderEdit({ recipeId: 'r1' });
+
+    expect(screen.queryByTestId('recipe-photo-uri')).toBeNull();
+    expect(screen.queryByTestId('recipe-photo')).toBeNull();
+
+    mockedLibrary.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///library/chilli.jpg' }],
+    });
+    fireEvent.press(screen.getByTestId('recipe-photo-pick'));
+
+    await waitFor(() => expect(screen.getByTestId('recipe-photo')).toBeTruthy());
+    fireEvent.press(screen.getByTestId('recipe-save'));
+
+    await waitFor(() => expect(mockRepoFns.saveRecipe).toHaveBeenCalledTimes(1));
+    expect(mockRepoFns.saveRecipe.mock.calls[0][0].photoUri).toBe('file:///library/chilli.jpg');
+  });
+
+  it('lets an attached photo be removed again', async () => {
+    mockRepoFns.getRecipe.mockResolvedValue({ ...recipe(), photoUri: 'file:///photos/old.jpg' });
+    await renderEdit({ recipeId: 'r1' });
+
+    expect(screen.getByTestId('recipe-photo')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('recipe-photo-remove'));
+
+    expect(screen.queryByTestId('recipe-photo')).toBeNull();
+    fireEvent.press(screen.getByTestId('recipe-save'));
+
+    await waitFor(() => expect(mockRepoFns.saveRecipe).toHaveBeenCalledTimes(1));
+    expect(mockRepoFns.saveRecipe.mock.calls[0][0].photoUri).toBeNull();
+  });
+
+  it('reports a photo library failure instead of failing silently', async () => {
+    mockRepoFns.getRecipe.mockResolvedValue(recipe());
+    await renderEdit({ recipeId: 'r1' });
+
+    mockedLibrary.mockRejectedValueOnce(new Error('no permission'));
+    fireEvent.press(screen.getByTestId('recipe-photo-pick'));
+
+    expect(await screen.findByTestId('recipe-photo-error')).toBeTruthy();
   });
 
   it('asks for confirmation before deleting', async () => {

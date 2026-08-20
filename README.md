@@ -253,7 +253,7 @@ Units: weights are stored in kilograms, heights in centimetres and energy in kca
 
 ## Data export, restore and deletion
 
-Settings → **Export data** creates a JSON snapshot for the signed-in account. It includes that account's profile, goals, entries, workouts, weight logs and settings, plus the visible food catalogue (shared seed foods and that account's foods). On Android the app writes a cache file and shares its URI instead of placing the full plaintext health history in an intent extra; the confirmation dialog states what the file contains.
+Settings → **Export data** creates a JSON snapshot for the signed-in account. It includes that account's profile, goals, entries, workouts, weight logs and settings, plus the visible food catalogue (shared seed foods and that account's foods). The app writes a cache file and hands it to the OS share sheet via `expo-sharing`, so the receiving app gets the file itself rather than the full plaintext health history in an intent extra; the Android confirmation dialog states what the file contains. If no share sheet is available the app falls back to sharing the JSON as text.
 
 Settings → **Restore from backup** reads an exported file back in. You choose:
 

@@ -213,6 +213,22 @@ describe('ActivityScreen — health connection', () => {
     expect(screen.queryByText('Connect')).toBeNull();
   });
 
+  it('stops claiming a connection when the health platform goes away', async () => {
+    // A user who connected on a device that had Health Connect keeps
+    // `healthSyncEnabled` on. If the platform later disappears — uninstalled,
+    // or a release build without the native module — the status flips to
+    // `unavailable`. Treating that as connected shows a stats row of zeros as
+    // though it were the real day, and syncing only yields a misleading
+    // "permissions not granted". The honest unavailable card must win.
+    useAppStore.setState({ settings: { ...DEFAULT_SETTINGS, healthSyncEnabled: true } });
+    mockHealthService.getPermissionStatus.mockResolvedValue('unavailable');
+    render(<ActivityScreen />);
+
+    expect(await screen.findByTestId('health-connect-card')).toBeTruthy();
+    expect(screen.getByText(/isn't available on this device/i)).toBeTruthy();
+    expect(screen.queryByTestId('health-stats-card')).toBeNull();
+  });
+
   it('connects, enables the setting, syncs and then shows the stats', async () => {
     mockHealthService.requestPermissions.mockImplementation(async () => {
       mockHealthService.getPermissionStatus.mockResolvedValue('granted');

@@ -199,6 +199,16 @@ export function AccountSwitcherSheet({
     void refreshAccounts();
   }, [refreshAccounts, visible]);
 
+  // Dismissing the sheet must clear the account selection, the typed password
+  // and any error, so reopening it never resumes an abandoned attempt with a
+  // stale password prefilled or a stale error still on screen.
+  useEffect(() => {
+    if (visible) return;
+    setSelected(null);
+    setPassword('');
+    setError(null);
+  }, [visible]);
+
   const handleSwitch = useCallback(async () => {
     if (!selected || submitRef.current) return;
     submitRef.current = true;
@@ -502,7 +512,11 @@ export function SignUpForm(): React.JSX.Element {
         onChangeText={setPassword}
         autoComplete="new-password"
         textContentType="newPassword"
-        error={error && !error.includes('email') && !error.includes('name') ? error : undefined}
+        error={
+          error && !error.includes('email') && !error.includes('name') && !error.includes('security')
+            ? error
+            : undefined
+        }
         testID="sign-up-password"
       />
       <PasswordStrength password={password} />
@@ -534,6 +548,7 @@ export function SignUpForm(): React.JSX.Element {
             onChangeText={setSecurityAnswer}
             autoComplete="off"
             textContentType="none"
+            error={error?.includes('security') ? error : undefined}
             testID="security-answer"
           />
         </View>
@@ -829,7 +844,17 @@ export function AccountSection(): React.JSX.Element | null {
 
       <AccountSwitcherSheet visible={switchOpen} onClose={() => setSwitchOpen(false)} />
 
-      <Sheet visible={passwordOpen} onClose={() => setPasswordOpen(false)} title="Change password">
+      <Sheet
+        visible={passwordOpen}
+        onClose={() => {
+          setPasswordOpen(false);
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setSheetError(null);
+        }}
+        title="Change password"
+      >
         <View style={{ gap: spacing.md }} testID="change-password-sheet">
           <PasswordField
             label="Current password"
@@ -875,7 +900,16 @@ export function AccountSection(): React.JSX.Element | null {
         </View>
       </Sheet>
 
-      <Sheet visible={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete account">
+      <Sheet
+        visible={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeletePassword('');
+          setDeleteConfirm('');
+          setSheetError(null);
+        }}
+        title="Delete account"
+      >
         <View style={{ gap: spacing.md }} testID="delete-account-sheet">
           <Text style={[typography.body, { color: colors.danger }]}>
             This permanently deletes this account's profile, goals, meals, foods, weigh-ins,

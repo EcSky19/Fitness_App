@@ -172,8 +172,12 @@ export default function ActivityScreen(): React.JSX.Element {
     void loadHealth();
   }, [loadHealth]);
 
-  const isConnected =
-    healthSyncEnabled && (healthStatus === 'granted' || healthStatus === 'unavailable');
+  // `unavailable` is not a connection. A release build with no native health
+  // module reports it, and so does a device where the platform was removed
+  // after the user connected. Counting it as connected would show a stats row
+  // of zeros as if it were the real day; HealthConnectCard has an honest
+  // unavailable state that explains the situation instead.
+  const isConnected = healthSyncEnabled && healthStatus === 'granted';
 
   const runSync = useCallback(async () => {
     setSyncing(true);
@@ -207,7 +211,7 @@ export default function ActivityScreen(): React.JSX.Element {
       const service = getHealthService();
       const status = await service.requestPermissions();
       setHealthStatus(status);
-      if (status === 'granted' || status === 'unavailable') {
+      if (status === 'granted') {
         updateSettings({ healthSyncEnabled: true });
         const result = await syncHealthDay(selectedDate);
         if (result?.ok) {
@@ -222,6 +226,10 @@ export default function ActivityScreen(): React.JSX.Element {
           // stats simply stay empty
         }
         reload();
+      } else if (status === 'unavailable') {
+        // The card re-renders into its unavailable state, which already
+        // explains this. A "denied access" error would send the user hunting
+        // through device settings for a permission that does not exist.
       } else {
         setHealthError(
           `${platformLabel} denied access. Enable MacroTrack in your device settings to sync automatically.`

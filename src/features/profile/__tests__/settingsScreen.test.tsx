@@ -72,13 +72,29 @@ jest.mock('expo-file-system', () => ({
   Paths: { cache: 'file:///cache' },
   // A constructor function returning an object, so `new File(uri)` works without
   // a class body (babel-plugin-jest-hoist rejects TS parameter properties here).
-  File: function MockFile() {
+  File: function MockFile(...args: string[]) {
+    const uri = args.length >= 2 ? `${args[0]}${args[1]}` : args[0];
     return {
+      uri,
       text: mockFileText,
-      write: () => undefined,
+      write: (contents: string) => {
+        mockExportWrites.set(uri, contents);
+      },
       info: () => ({ contentUri: 'content://export.json' }),
     };
   },
+}));
+
+const mockExportWrites = new Map<string, string>();
+const mockSharing = {
+  isAvailableAsync: jest.fn(async () => true),
+  shareAsync: jest.fn(async (_uri: string, _opts?: unknown) => undefined),
+};
+// Wrappers, not `mockSharing` itself: the factory runs while it is still in TDZ.
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: (...args: unknown[]) => mockSharing.isAvailableAsync(...(args as [])),
+  shareAsync: (...args: unknown[]) =>
+    mockSharing.shareAsync(...(args as [string, unknown?])),
 }));
 
 import * as repos from '@/db/repositories';
@@ -219,19 +235,23 @@ describe('Settings — data', () => {
     expect(screen.getByText('42')).toBeTruthy();
   });
 
-  it('exports pretty JSON through Share', async () => {
+  it('exports pretty JSON as a shareable file', async () => {
     const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
     render(<SettingsScreen />);
     await flushAsync();
 
     fireEvent.press(screen.getByTestId('data-export'));
 
-    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+    await waitFor(() => expect(mockSharing.shareAsync).toHaveBeenCalled());
     await flushAsync();
     await flushAsync();
-    const message = shareSpy.mock.calls[0][0].message as string;
+    // The file itself carries the data, so the receiving app gets a real
+    // backup rather than a path string or a size-limited text blob.
+    const sharedUri = mockSharing.shareAsync.mock.calls[0][0] as string;
+    const message = mockExportWrites.get(sharedUri) ?? '';
     expect(message).toContain('\n  ');
     expect(JSON.parse(message)).toEqual({ profile: { name: 'Alex' }, entries: [] });
+    expect(shareSpy).not.toHaveBeenCalled();
     shareSpy.mockRestore();
   });
 

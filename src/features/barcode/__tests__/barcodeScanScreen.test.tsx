@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -227,5 +227,82 @@ describe('barcode scanner', () => {
     fireEvent.press(screen.getByTestId('manual-barcode-submit'));
 
     await waitFor(() => expect(mockedLookup).toHaveBeenCalledWith(PRODUCT.barcode));
+  });
+});
+
+/**
+ * Manual entry is the ONLY way to use this screen when the camera is
+ * unavailable, so every lookup outcome has to be reachable there. The
+ * permission-denied branch renders its own tree, which is easy to leave behind
+ * when the scanning branch gains a new result state.
+ */
+describe('manual entry when the camera is unavailable', () => {
+  beforeEach(() => {
+    mockedPermissions.mockImplementation(() => [
+      { granted: false, canAskAgain: false, status: 'denied' },
+      jest.fn(),
+    ]);
+  });
+
+  function lookUp(code = '4006381333931'): void {
+    fireEvent.press(screen.getAllByText('Enter barcode')[0]);
+    fireEvent.changeText(screen.getByLabelText('Barcode'), code);
+    fireEvent.press(screen.getByTestId('manual-barcode-submit'));
+  }
+
+  it('shows the product that was found so it can still be saved', async () => {
+    mockedLookup.mockResolvedValue({ ok: true, data: PRODUCT });
+    render(<BarcodeScanScreen />);
+
+    lookUp();
+
+    expect(await screen.findByTestId('barcode-product-card')).toBeTruthy();
+    expect(screen.getByText('Crunchy oats')).toBeTruthy();
+  });
+
+  it('reports a failed lookup instead of leaving the user with no answer', async () => {
+    mockedLookup.mockResolvedValue({ ok: false, error: 'No connection.' });
+    render(<BarcodeScanScreen />);
+
+    lookUp();
+
+    expect(await screen.findByTestId('barcode-error')).toBeTruthy();
+    expect(screen.getByText('No connection.')).toBeTruthy();
+  });
+
+  it('offers to create the food when the barcode is unknown', async () => {
+    mockedLookup.mockResolvedValue({ ok: true, data: null });
+    render(<BarcodeScanScreen />);
+
+    lookUp();
+
+    expect(await screen.findByTestId('barcode-not-found')).toBeTruthy();
+  });
+
+  it('still saves a found product from the denied state', async () => {
+    mockedLookup.mockResolvedValue({ ok: true, data: PRODUCT });
+    render(<BarcodeScanScreen />);
+
+    lookUp();
+    fireEvent.press(await screen.findByTestId('save-barcode-food'));
+
+    await waitFor(() => expect(mockedUpsertFood).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('an invalid barcode typed into the sheet', () => {
+  it('explains the problem inside the sheet rather than behind it', async () => {
+    // The sheet stays open on a rejected code, so a message rendered on the
+    // camera layer underneath it is invisible: the user taps Look up and
+    // nothing appears to happen.
+    mockedValid.mockReturnValue(false);
+    render(<BarcodeScanScreen />);
+
+    fireEvent.press(screen.getByTestId('manual-barcode'));
+    fireEvent.changeText(screen.getByLabelText('Barcode'), '123');
+    fireEvent.press(screen.getByTestId('manual-barcode-submit'));
+
+    const sheet = await screen.findByTestId('manual-barcode-sheet');
+    expect(within(sheet).getByText(/doesn.t look valid/)).toBeTruthy();
   });
 });

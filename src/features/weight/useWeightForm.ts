@@ -79,6 +79,12 @@ function seedKg(options: UseWeightFormOptions): number | null {
   return null;
 }
 
+/** Body fat is a percentage; the field clamps on blur, saving may skip that. */
+function clampBodyFat(value: number | null): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.min(100, Math.max(0, value));
+}
+
 export function useWeightForm(options: UseWeightFormOptions = {}): UseWeightFormResult {
   const { log = null, latestLog = null, prefillKg = null, active = true, onSaved } = options;
 
@@ -209,7 +215,7 @@ export function useWeightForm(options: UseWeightFormOptions = {}): UseWeightForm
     const payload = {
       date,
       weightKg,
-      bodyFatPct: bodyFatPct != null && Number.isFinite(bodyFatPct) ? bodyFatPct : null,
+      bodyFatPct: clampBodyFat(bodyFatPct),
       note: trimmedNote.length > 0 ? trimmedNote : null,
     };
 

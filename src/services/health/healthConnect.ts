@@ -27,6 +27,7 @@ import {
   normalizeDaySummary,
   parseLocalDate,
   roundTo,
+  safeNumber,
 } from './types';
 
 /** Health Connect SDK availability code for "installed and usable". */
@@ -314,7 +315,7 @@ function energyInWindow(
     const to = timeOf(record, ['endTime', 'time']) ?? from;
     if (from === null || to === null || to < from) return total;
 
-    const kcal = quantityToKcal(record.energy);
+    const kcal = safeNumber(quantityToKcal(record.energy));
     if (kcal <= 0) return total;
 
     const overlap = Math.min(to, end) - Math.max(from, start);
@@ -465,14 +466,17 @@ export class HealthConnectService implements HealthService {
         this.readRecords('Distance', startISO, endISO),
       ]);
 
-      const stepCount = steps.reduce(
-        (sum, record) => sum + (typeof record.count === 'number' ? record.count : 0),
+      const stepCount = steps.reduce((sum, record) => sum + safeNumber(record.count), 0);
+      const activeEnergyKcal = active.reduce(
+        (sum, record) => sum + safeNumber(quantityToKcal(record.energy)),
         0
       );
-      const activeEnergyKcal = active.reduce((sum, record) => sum + quantityToKcal(record.energy), 0);
-      const totalEnergyKcal = total.reduce((sum, record) => sum + quantityToKcal(record.energy), 0);
+      const totalEnergyKcal = total.reduce(
+        (sum, record) => sum + safeNumber(quantityToKcal(record.energy)),
+        0
+      );
       const distanceMeters = distance.reduce(
-        (sum, record) => sum + quantityToMeters(record.distance),
+        (sum, record) => sum + safeNumber(quantityToMeters(record.distance)),
         0
       );
 

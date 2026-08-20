@@ -672,6 +672,16 @@ async function clearAccountData(db: Db, accountId: ID, photoSink: string[]): Pro
     if (row.photo_uri) photoSink.push(row.photo_uri);
   }
 
+  // Recipes carry photos too; missing them here leaves a file on disk for every
+  // replaced recipe with no row left to ever reference or clean it up.
+  const recipePhotoRows = await db.getAllAsync<{ photo_uri: string | null }>(
+    'SELECT photo_uri FROM recipes WHERE account_id = ? AND photo_uri IS NOT NULL;',
+    accountId
+  );
+  for (const row of recipePhotoRows ?? []) {
+    if (row.photo_uri) photoSink.push(row.photo_uri);
+  }
+
   await db.runAsync('DELETE FROM food_entries WHERE account_id = ?;', accountId);
   await db.runAsync('DELETE FROM recipe_items WHERE account_id = ?;', accountId);
   await db.runAsync('DELETE FROM recipes WHERE account_id = ?;', accountId);
@@ -900,10 +910,13 @@ export async function importAllData(
         items.push({ ...item, id: itemRemap.id, recipeId: remap.id, foodId });
       }
       const totals = recipeTotals(items);
+      const recipePhotoUri = importedPhotoUri(recipe.photoUri, photoPrefix);
+      if (recipe.photoUri && !recipePhotoUri) droppedPhotos += 1;
       const nextRecipe: Recipe = {
         ...recipe,
         id: remap.id,
         items,
+        photoUri: recipePhotoUri,
         totals: totals.macros,
         totalGrams: totals.grams,
       };
@@ -1005,7 +1018,7 @@ export async function importAllData(
 
   if (droppedPhotos > 0) {
     warnings.push(
-      `foodEntries: ${droppedPhotos} photo${droppedPhotos === 1 ? '' : 's'} could not be restored because backup files do not include images.`
+      `photos: ${droppedPhotos} photo${droppedPhotos === 1 ? '' : 's'} could not be restored because backup files do not include images.`
     );
   }
 

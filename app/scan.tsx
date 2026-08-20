@@ -224,6 +224,27 @@ export default function ScanScreen(): React.JSX.Element {
     else router.replace('/(tabs)');
   }, []);
 
+  /**
+   * Shared by the camera and the blocked-camera branches: the gallery is
+   * offered in both, so an empty analysis has to be explained in both. Leaving
+   * it to the camera branch alone drops blocked users back to the rationale
+   * card with no idea why nothing happened.
+   */
+  const noFoodCard = (
+    <Card testID="no-food-card">
+      <Text style={[typography.title, { color: colors.text }]}>No food detected</Text>
+      <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
+        {mode === 'nutrition_label'
+          ? 'The Nutrition Facts panel was hard to read. Move closer, keep it flat and avoid glare.'
+          : 'Try getting closer so the plate fills the frame, or find better light.'}
+      </Text>
+      <View style={styles.actions}>
+        <Button title="Retake photo" icon="camera-outline" onPress={cancelAnalysis} />
+        <Button title="Enter manually" variant="secondary" icon="create-outline" onPress={goManual} />
+      </View>
+    </Card>
+  );
+
   /* ---------------------------------------------------------------------- */
   /* Permission gates                                                       */
   /* ---------------------------------------------------------------------- */
@@ -307,6 +328,8 @@ export default function ScanScreen(): React.JSX.Element {
           </View>
         ) : null}
 
+        {phase === 'empty' ? <View style={{ marginTop: spacing.lg }}>{noFoodCard}</View> : null}
+
         {phase === 'analyzing' && photoUri ? (
           <AnalyzingOverlay photoUri={photoUri} mode={mode} onCancel={cancelAnalysis} />
         ) : null}
@@ -377,23 +400,7 @@ export default function ScanScreen(): React.JSX.Element {
                 onAddApiKey={goSettings}
               />
             ) : (
-              <Card testID="no-food-card">
-                <Text style={[typography.title, { color: colors.text }]}>No food detected</Text>
-                <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
-                  {mode === 'nutrition_label'
-                    ? 'The Nutrition Facts panel was hard to read. Move closer, keep it flat and avoid glare.'
-                    : 'Try getting closer so the plate fills the frame, or find better light.'}
-                </Text>
-                <View style={styles.actions}>
-                  <Button title="Retake photo" icon="camera-outline" onPress={cancelAnalysis} />
-                  <Button
-                    title="Enter manually"
-                    variant="secondary"
-                    icon="create-outline"
-                    onPress={goManual}
-                  />
-                </View>
-              </Card>
+              noFoodCard
             )}
 
             <Button

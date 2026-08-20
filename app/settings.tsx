@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
 
 import {
   Badge,
@@ -266,27 +267,25 @@ export default function SettingsScreen(): React.JSX.Element {
     try {
       const payload = await exportAllData();
       const json = JSON.stringify(payload, null, 2);
-      if (Platform.OS !== 'android') {
-        await Share.share({
-          title: 'MacroTrack export',
-          message: json,
+
+      // Share a real file rather than text. react-native's `Share` can only
+      // attach a file via `url` on iOS, and its `message` goes through Android's
+      // Binder transaction (~1 MB), which a year of logs can exceed — so a text
+      // share silently truncates or throws for exactly the users with the most
+      // to lose. `expo-sharing` hands the receiving app the file itself.
+      const file = new File(Paths.cache, `macrotrack-export-${Date.now()}.json`);
+      file.write(json);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/json',
+          UTI: 'public.json',
+          dialogTitle: 'MacroTrack export',
         });
         return;
       }
 
-      const file = new File(Paths.cache, `macrotrack-export-${Date.now()}.json`);
-      file.write(json);
-      const info = file.info();
-      const contentUri =
-        'contentUri' in info && typeof info.contentUri === 'string' && info.contentUri.length > 0
-          ? info.contentUri
-          : null;
-      const uri = Platform.OS === 'android' ? contentUri ?? file.uri : file.uri;
-
-      await Share.share({
-        title: 'MacroTrack export',
-        message: `MacroTrack export JSON file: ${uri}`,
-      });
+      await Share.share({ title: 'MacroTrack export', message: json });
     } catch (error) {
       Alert.alert('Export failed', error instanceof Error ? error.message : 'Please try again.');
     } finally {

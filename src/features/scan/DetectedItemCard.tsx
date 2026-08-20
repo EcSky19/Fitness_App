@@ -88,6 +88,10 @@ export function DetectedItemCard({
 
       <View
         pointerEvents={item.included ? 'auto' : 'none'}
+        // Excluded items are inert, so they must leave the screen-reader tree
+        // too — otherwise the fields are still reachable but swallow every tap.
+        accessibilityElementsHidden={!item.included}
+        importantForAccessibility={item.included ? 'auto' : 'no-hide-descendants'}
         style={item.included ? undefined : styles.excluded}
       >
         {item.notes ? (

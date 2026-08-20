@@ -65,7 +65,7 @@ jest.mock('expo-file-system', () => {
   };
 });
 
-import { addFoodEntries, deleteFoodEntry, listEntriesByDate, repeatEntries } from '@/db/repositories';
+import { addFoodEntries, deleteFoodEntry, deleteRecipe, listEntriesByDate, listRecipes, repeatEntries, saveRecipe } from '@/db/repositories';
 import { deleteAccount } from '@/db/repositories/accounts';
 import { exportAllData } from '@/db/repositories/admin';
 import { importAllData } from '@/db/repositories/importData';
@@ -281,5 +281,100 @@ describe('importing a backup that references photos', () => {
 
     const [restored] = await listEntriesByDate(DATE);
     expect(restored?.photoUri).toBe(original?.photoUri);
+  });
+});
+
+describe('recipe photos', () => {
+  const RECIPE_ITEM = {
+    name: 'Oats',
+    quantity: 1,
+    unit: 'serving' as const,
+    grams: 100,
+    gramsTotal: 100,
+    macros,
+    foodId: null,
+    sortOrder: 0,
+  };
+
+  it('copies the picked photo into the account folder instead of storing the cache path', async () => {
+    const recipe = await saveRecipe({ name: 'Overnight oats', photoUri: SOURCE, items: [RECIPE_ITEM] });
+
+    expect(recipe.photoUri).not.toBe(SOURCE);
+    expect(recipe.photoUri).toContain(ACCOUNT);
+    expect(mockFiles.has(recipe.photoUri as string)).toBe(true);
+    expect(mockFiles.has(SOURCE)).toBe(false);
+  });
+
+  it('keeps the same file when a recipe is saved again without touching its photo', async () => {
+    const first = await saveRecipe({ name: 'Overnight oats', photoUri: SOURCE, items: [RECIPE_ITEM] });
+    const second = await saveRecipe({
+      id: first.id,
+      name: 'Overnight oats v2',
+      photoUri: first.photoUri,
+      items: [RECIPE_ITEM],
+    });
+
+    expect(second.photoUri).toBe(first.photoUri);
+    expect(mockFiles.has(first.photoUri as string)).toBe(true);
+  });
+
+  it('removes the old file when the photo is replaced', async () => {
+    const first = await saveRecipe({ name: 'Overnight oats', photoUri: SOURCE, items: [RECIPE_ITEM] });
+    mockFiles.add('file:///cache/new-oats.jpg');
+
+    const second = await saveRecipe({
+      id: first.id,
+      name: 'Overnight oats',
+      photoUri: 'file:///cache/new-oats.jpg',
+      items: [RECIPE_ITEM],
+    });
+
+    expect(second.photoUri).not.toBe(first.photoUri);
+    expect(mockFiles.has(first.photoUri as string)).toBe(false);
+    expect(mockFiles.has(second.photoUri as string)).toBe(true);
+  });
+
+  it('removes the file when the recipe is deleted', async () => {
+    const recipe = await saveRecipe({ name: 'Overnight oats', photoUri: SOURCE, items: [RECIPE_ITEM] });
+
+    await deleteRecipe(recipe.id);
+
+    expect(mockFiles.has(recipe.photoUri as string)).toBe(false);
+  });
+
+  it('drops a recipe photo that belongs to another account on import', async () => {
+    const original = await saveRecipe({
+      name: 'Overnight oats',
+      photoUri: SOURCE,
+      items: [RECIPE_ITEM],
+    });
+    expect(original.photoUri).toContain(`/${ACCOUNT}/`);
+
+    const dump = await exportAllData();
+
+    await useTestAccount('account-recipe-importer');
+    const result = await importAllData(dump, { mode: 'replace' });
+
+    expect(result.counts.recipes.imported).toBe(1);
+    const [stored] = await listRecipes({ limit: 10 });
+    // The backup carries a path, never the image itself, and that path points
+    // into the exporting account's private folder.
+    expect(stored?.photoUri).toBeNull();
+    expect(result.warnings.some((w) => w.includes('could not be restored'))).toBe(true);
+  });
+
+  it('keeps a recipe photo when the backup is restored into the same account', async () => {
+    const original = await saveRecipe({
+      name: 'Overnight oats',
+      photoUri: SOURCE,
+      items: [RECIPE_ITEM],
+    });
+
+    const dump = await exportAllData();
+    const result = await importAllData(dump, { mode: 'replace' });
+
+    const [stored] = await listRecipes({ limit: 10 });
+    expect(stored?.photoUri).toBe(original.photoUri);
+    expect(result.warnings.some((w) => w.includes('could not be restored'))).toBe(false);
   });
 });

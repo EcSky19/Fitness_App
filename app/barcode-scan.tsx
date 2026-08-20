@@ -208,6 +208,86 @@ export default function BarcodeScanScreen(): React.JSX.Element {
     else router.replace('/(tabs)/diary');
   }, []);
 
+  const openManual = useCallback(() => {
+    // Drop any message from a previous attempt so the sheet never opens showing
+    // a stale complaint about a code the user has already moved on from.
+    setMessage(null);
+    setManualOpen(true);
+  }, []);
+
+  /**
+   * Every outcome of a lookup. Rendered by BOTH the camera branch and the
+   * permission-denied branch: manual entry is the only way to use this screen
+   * without a camera, so a result that only the camera branch can display would
+   * leave those users tapping "Look up" and seeing nothing at all.
+   */
+  const resultOverlays = (
+    <>
+      {phase === 'looking_up' ? (
+        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
+          <Card testID="barcode-looking-up">
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[typography.title, { color: colors.text, marginTop: spacing.md }]}>
+              Looking up barcode…
+            </Text>
+            <Text style={[typography.caption, { color: colors.textMuted }]}>{barcode}</Text>
+            <Button title="Cancel" variant="ghost" onPress={resetScan} testID="barcode-cancel" />
+          </Card>
+        </View>
+      ) : null}
+
+      {phase === 'found' && product ? (
+        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
+          <ProductCard product={product} onConfirm={saveRemoteFood} onRescan={resetScan} />
+        </View>
+      ) : null}
+
+      {phase === 'not_found' ? (
+        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
+          <Card testID="barcode-not-found">
+            <Text style={[typography.title, { color: colors.text }]}>Not in the database yet</Text>
+            <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
+              Create it once with this barcode attached. Next time it will scan instantly offline.
+            </Text>
+            <Text style={[typography.mono, { color: colors.text, marginTop: spacing.md }]}>{barcode}</Text>
+            <View style={styles.actions}>
+              <Button title="Create food" onPress={() => goManualCreate(barcode)} testID="create-barcode-food" />
+              <Button title="Try again" variant="secondary" onPress={resetScan} />
+            </View>
+          </Card>
+        </View>
+      ) : null}
+
+      {phase === 'error' ? (
+        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
+          <Card testID="barcode-error">
+            <Text style={[typography.title, { color: colors.text }]}>Lookup failed</Text>
+            <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
+              {message ?? 'Try again.'}
+            </Text>
+            <View style={styles.actions}>
+              <Button title="Try again" onPress={resetScan} />
+              <Button title="Create food" variant="secondary" onPress={() => goManualCreate(barcode)} />
+            </View>
+          </Card>
+        </View>
+      ) : null}
+    </>
+  );
+
+  const manualSheet = (
+    <ManualBarcodeSheet
+      visible={manualOpen}
+      code={manualCode}
+      // A rejected code leaves the sheet open, so its complaint has to appear
+      // inside the sheet; the camera layer underneath is not visible.
+      error={phase === 'scanning' ? message : null}
+      onChangeCode={setManualCode}
+      onClose={() => setManualOpen(false)}
+      onSubmit={submitManual}
+    />
+  );
+
   if (!permission) {
     return (
       <Screen title="Barcode scan">
@@ -234,7 +314,7 @@ export default function BarcodeScanScreen(): React.JSX.Element {
                 }}
                 testID="allow-camera"
               />
-              <Button title="Enter barcode" variant="secondary" onPress={() => setManualOpen(true)} />
+              <Button title="Enter barcode" variant="secondary" onPress={openManual} />
             </View>
           </Card>
         ) : (
@@ -253,18 +333,13 @@ export default function BarcodeScanScreen(): React.JSX.Element {
               }}
             />
             <View style={styles.actions}>
-              <Button title="Enter barcode" variant="secondary" onPress={() => setManualOpen(true)} />
+              <Button title="Enter barcode" variant="secondary" onPress={openManual} />
               <Button title="Close" variant="ghost" onPress={close} />
             </View>
           </View>
         )}
-        <ManualBarcodeSheet
-          visible={manualOpen}
-          code={manualCode}
-          onChangeCode={setManualCode}
-          onClose={() => setManualOpen(false)}
-          onSubmit={submitManual}
-        />
+        {resultOverlays}
+        {manualSheet}
       </Screen>
     );
   }
@@ -316,70 +391,15 @@ export default function BarcodeScanScreen(): React.JSX.Element {
           <Button
             title="Enter barcode"
             variant="secondary"
-            onPress={() => setManualOpen(true)}
+            onPress={openManual}
             testID="manual-barcode"
           />
           <Button title="Photo scan" variant="ghost" onPress={() => router.replace('/scan')} />
         </View>
       </View>
 
-      {phase === 'looking_up' ? (
-        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
-          <Card testID="barcode-looking-up">
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[typography.title, { color: colors.text, marginTop: spacing.md }]}>
-              Looking up barcode…
-            </Text>
-            <Text style={[typography.caption, { color: colors.textMuted }]}>{barcode}</Text>
-            <Button title="Cancel" variant="ghost" onPress={resetScan} testID="barcode-cancel" />
-          </Card>
-        </View>
-      ) : null}
-
-      {phase === 'found' && product ? (
-        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
-          <ProductCard product={product} onConfirm={saveRemoteFood} onRescan={resetScan} />
-        </View>
-      ) : null}
-
-      {phase === 'not_found' ? (
-        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
-          <Card testID="barcode-not-found">
-            <Text style={[typography.title, { color: colors.text }]}>Not in the database yet</Text>
-            <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
-              Create it once with this barcode attached. Next time it will scan instantly offline.
-            </Text>
-            <Text style={[typography.mono, { color: colors.text, marginTop: spacing.md }]}>{barcode}</Text>
-            <View style={styles.actions}>
-              <Button title="Create food" onPress={() => goManualCreate(barcode)} testID="create-barcode-food" />
-              <Button title="Try again" variant="secondary" onPress={resetScan} />
-            </View>
-          </Card>
-        </View>
-      ) : null}
-
-      {phase === 'error' ? (
-        <View style={[StyleSheet.absoluteFill, styles.overlay, { backgroundColor: colors.overlay }]}>
-          <Card testID="barcode-error">
-            <Text style={[typography.title, { color: colors.text }]}>Lookup failed</Text>
-            <Text style={[typography.body, { color: colors.textMuted, marginTop: spacing.xs }]}>
-              {message ?? 'Try again.'}
-            </Text>
-            <View style={styles.actions}>
-              <Button title="Try again" onPress={resetScan} />
-              <Button title="Create food" variant="secondary" onPress={() => goManualCreate(barcode)} />
-            </View>
-          </Card>
-        </View>
-      ) : null}
-
-      <ManualBarcodeSheet
-        visible={manualOpen}
-        code={manualCode}
-        onChangeCode={setManualCode}
-        onClose={() => setManualOpen(false)}
-        onSubmit={submitManual}
-      />
+      {resultOverlays}
+      {manualSheet}
     </View>
   );
 }
@@ -421,12 +441,14 @@ function ProductCard({
 function ManualBarcodeSheet({
   visible,
   code,
+  error,
   onChangeCode,
   onClose,
   onSubmit,
 }: {
   visible: boolean;
   code: string;
+  error: string | null;
   onChangeCode: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -441,6 +463,7 @@ function ManualBarcodeSheet({
           onChangeText={onChangeCode}
           placeholder="UPC or EAN"
           keyboardType="number-pad"
+          error={error ?? undefined}
         />
         <View style={styles.actions}>
           <Button title="Look up" onPress={onSubmit} testID="manual-barcode-submit" />

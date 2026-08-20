@@ -23,7 +23,7 @@ import {
 } from '@/ui';
 
 import { ActivityPicker } from './ActivityPicker';
-import { DEFAULT_WEIGHT_KG, useWorkoutForm } from './useWorkoutForm';
+import { DEFAULT_WEIGHT_KG, MAX_CALORIES_BURNED, MAX_DURATION_MIN, useWorkoutForm } from './useWorkoutForm';
 
 const QUICK_DURATIONS = [15, 30, 45, 60];
 
@@ -168,7 +168,7 @@ function WorkoutSheetBody({
           suffix="min"
           placeholder="0"
           min={0}
-          max={1440}
+          max={MAX_DURATION_MIN}
         />
         <View style={styles.chipRow}>
           {QUICK_DURATIONS.map((minutes) => (
@@ -188,7 +188,7 @@ function WorkoutSheetBody({
           suffix="kcal"
           placeholder="0"
           min={0}
-          max={20000}
+          max={MAX_CALORIES_BURNED}
         />
         <View style={styles.estimateRow}>
           <Text style={[typography.caption, { color: colors.textMuted, flex: 1 }]}>

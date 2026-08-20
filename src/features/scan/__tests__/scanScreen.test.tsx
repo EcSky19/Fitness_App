@@ -242,6 +242,28 @@ describe('scan screen - permissions', () => {
     expect((router.replace as unknown as jest.Mock).mock.calls[0][0]).toContain('/scan-review');
   });
 
+  /**
+   * The gallery is offered from the blocked-camera screen, so every outcome of
+   * a gallery analysis has to be answerable there. An empty result used to fall
+   * through silently: the overlay vanished and the user was returned to the
+   * rationale card with no explanation at all.
+   */
+  it('explains an empty result from a library photo while the camera is blocked', async () => {
+    grant({ granted: false, canAskAgain: false, status: 'denied' });
+    mockedAnalyze.mockResolvedValue({ ok: true, data: makeVisionResult({ items: [] }) });
+    mockedLibrary.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: 'file:///library/pic.jpg' }],
+    });
+    render(<ScanScreen />);
+
+    fireEvent.press(screen.getByTestId('permission-gallery'));
+
+    await waitFor(() => expect(screen.getByTestId('no-food-card')).toBeTruthy());
+    expect(screen.getByText('No food detected')).toBeTruthy();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
   it('waits quietly while the permission is still unknown', () => {
     grant(null as unknown as object);
     render(<ScanScreen />);

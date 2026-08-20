@@ -295,3 +295,36 @@ describe('useWorkoutForm — editing', () => {
     expect(result.current.buildPayload().loggedAt).toBe(entry.loggedAt);
   });
 });
+
+describe('useWorkoutForm — out of range input', () => {
+  /**
+   * NumberField clamps min/max on blur only, so a value typed and saved without
+   * leaving the field reaches buildPayload unclamped. An absurd burn feeds the
+   * daily target and can tell someone they have thousands of calories left.
+   */
+  it('clamps a duration and a burn that never got blurred', () => {
+    const { result } = renderHook(() => useWorkoutForm({ date: TEST_TODAY, weightKg: 80 }));
+
+    act(() => result.current.setName('Ultra'));
+    act(() => result.current.setDurationMin(99999));
+    act(() => result.current.setCalories(999999));
+
+    const payload = result.current.buildPayload();
+
+    expect(payload.durationMin).toBe(1440);
+    expect(payload.caloriesBurned).toBe(20000);
+  });
+
+  it('never emits a negative duration or burn', () => {
+    const { result } = renderHook(() => useWorkoutForm({ date: TEST_TODAY, weightKg: 80 }));
+
+    act(() => result.current.setName('Ultra'));
+    act(() => result.current.setDurationMin(-30));
+    act(() => result.current.setCalories(-100));
+
+    const payload = result.current.buildPayload();
+
+    expect(payload.durationMin).toBe(0);
+    expect(payload.caloriesBurned).toBe(0);
+  });
+});

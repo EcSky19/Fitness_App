@@ -103,6 +103,37 @@ describe('unit conversion', () => {
     expect(payload.bodyFatPct).toBeNull();
     expect(payload.note).toBeNull();
   });
+
+  /**
+   * NumberField deliberately clamps min/max on blur only, so a value typed and
+   * saved without leaving the field arrives here unclamped. The hook is the
+   * boundary that actually writes the row, so it has to reject nonsense itself.
+   */
+  it('keeps an unblurred body fat percentage inside a possible range', async () => {
+    setUnit('kg');
+    const { result } = renderHook(() => useWeightForm());
+
+    act(() => result.current.setDisplayWeight(80));
+    act(() => result.current.setBodyFatPct(150));
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(repos.addWeightLog.mock.calls[0][0].bodyFatPct).toBe(100);
+  });
+
+  it('discards a negative body fat percentage', async () => {
+    setUnit('kg');
+    const { result } = renderHook(() => useWeightForm());
+
+    act(() => result.current.setDisplayWeight(80));
+    act(() => result.current.setBodyFatPct(-5));
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(repos.addWeightLog.mock.calls[0][0].bodyFatPct).toBe(0);
+  });
 });
 
 describe('big change warning', () => {

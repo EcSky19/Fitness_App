@@ -20,7 +20,7 @@ Data stored locally may include:
 
 - Local account details, including email address, display name, password hash, password salt, and recovery question data.
 - Profile details you enter, such as height, weight, sex, birth date, activity level, and goals.
-- Food entries, custom foods, recipes, meal logs, nutrition values, and food photos you choose to keep with entries.
+- Food entries, custom foods, recipes, meal logs, nutrition values, and the food and recipe photos you choose to keep.
 - Exercise entries and weight logs.
 - App settings, including selected units, theme, selected barcode provider, selected vision provider, and Health integration settings.
 - API keys you choose to save for OpenAI or Google Gemini vision analysis.
