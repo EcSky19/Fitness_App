@@ -228,7 +228,15 @@ export default function FoodSearchScreen(): React.JSX.Element {
           autoFocus
           autoCorrect={false}
           returnKeyType="search"
-          right={searching ? <ActivityIndicator testID="search-spinner" size="small" /> : undefined}
+          right={
+            searching ? (
+              <ActivityIndicator
+                testID="search-spinner"
+                accessibilityLabel={`Searching foods for ${MEAL_LABELS[mealType].toLowerCase()}`}
+                size="small"
+              />
+            ) : undefined
+          }
         />
 
         <View style={[styles.actions, { marginTop: spacing.md }]}>
@@ -238,6 +246,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
             icon="camera-outline"
             variant="secondary"
             size="sm"
+            accessibilityLabel={`Scan food for ${MEAL_LABELS[mealType].toLowerCase()}`}
             onPress={handleScan}
           />
           <View style={styles.actionGap} />
@@ -247,6 +256,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
             icon="albums-outline"
             variant="secondary"
             size="sm"
+            accessibilityLabel={`Open saved meals for ${MEAL_LABELS[mealType].toLowerCase()}`}
             onPress={() => setRecipePickerOpen(true)}
           />
           <View style={styles.actionGap} />
@@ -256,6 +266,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
             icon="flash-outline"
             variant="secondary"
             size="sm"
+            accessibilityLabel={`Quick add food for ${MEAL_LABELS[mealType].toLowerCase()}`}
             onPress={handleQuickAdd}
           />
         </View>
@@ -270,6 +281,7 @@ export default function FoodSearchScreen(): React.JSX.Element {
       <View style={styles.list}>
         <FlatList
           testID="food-search-results"
+          accessibilityLabel={`Food search results for ${MEAL_LABELS[mealType].toLowerCase()}`}
           data={results}
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"

@@ -3,6 +3,7 @@ import { Alert, Platform, Share, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 
 import {
@@ -17,7 +18,7 @@ import {
   TextField,
   useTheme,
 } from '@/ui';
-import { clearAllData, exportAllData, getDbStats, saveSettings } from '@/db/repositories';
+import { clearAllData, exportAllData, getDbStats, importAllData, saveSettings } from '@/db/repositories';
 import {
   HEALTH_PERMISSIONS,
   getHealthService,
@@ -150,6 +151,36 @@ export default function SettingsScreen(): React.JSX.Element {
     [data.providers, settings.visionProvider]
   );
 
+  /**
+   * Switching to a cloud provider changes where the user's food photos GO: the
+   * on-device provider never transmits an image, while OpenAI and Gemini upload
+   * it for analysis. The camera screen explains this once, before permission is
+   * granted, and is never shown again — so a user who switches providers later
+   * would otherwise start uploading photos with no disclosure at all. Ask first.
+   */
+  const handleVisionProviderChange = useCallback(
+    (visionProvider: string) => {
+      if (visionProvider === settings.visionProvider) return;
+
+      const next = data.providers.find((p) => p.id === visionProvider) ?? null;
+      const uploadsPhotos = next?.requiresApiKey === true;
+      if (!uploadsPhotos) {
+        applySettings({ visionProvider });
+        return;
+      }
+
+      Alert.alert(
+        `Send photos to ${next?.label ?? 'this provider'}?`,
+        `Your meal and nutrition-label photos will be uploaded to ${next?.label ?? 'this provider'} for analysis, and handled under their privacy policy. Nothing else in MacroTrack leaves your device.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Use provider', onPress: () => applySettings({ visionProvider }) },
+        ]
+      );
+    },
+    [applySettings, data.providers, settings.visionProvider]
+  );
+
   // Static registry, so it needs no async load and can never fail.
   const barcodeProviders = useMemo(() => listBarcodeProviders() ?? [], []);
 
@@ -274,6 +305,100 @@ export default function SettingsScreen(): React.JSX.Element {
       { text: 'Export JSON file', onPress: () => void handleExport() },
     ]);
   }, [handleExport]);
+
+  /**
+   * Restore from a previously exported backup file.
+   *
+   * Export alone is only half a backup story: without a way back in, a lost or
+   * replaced phone means the whole history is gone, because nothing is synced to
+   * a server. Parsing is deliberately defensive — the file is user-supplied and
+   * may be truncated, hand-edited or from another app entirely.
+   */
+  const runImport = useCallback(
+    async (payload: unknown, mode: 'merge' | 'replace') => {
+      setBusy('import');
+      try {
+        const result = await importAllData(payload, { mode });
+
+        const totals = Object.values(result.counts).reduce(
+          (acc, count) => ({
+            imported: acc.imported + count.imported,
+            skipped: acc.skipped + count.skipped,
+          }),
+          { imported: 0, skipped: 0 }
+        );
+
+        // A restore can replace the profile, goal and settings, so refresh the
+        // cached copies rather than leaving the screen showing pre-import state.
+        await useAppStore.getState().bootstrap();
+        invalidate();
+        setRefreshToken((n) => n + 1);
+        reload();
+
+        const detail = [
+          `${totals.imported} record${totals.imported === 1 ? '' : 's'} restored.`,
+          totals.skipped > 0 ? `${totals.skipped} skipped.` : null,
+          result.warnings.length > 0 ? `\n\n${result.warnings.slice(0, 5).join('\n')}` : null,
+          result.warnings.length > 5 ? `\n(+${result.warnings.length - 5} more)` : null,
+        ]
+          .filter(Boolean)
+          .join(' ');
+
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Restore complete', detail);
+      } catch (error) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert(
+          'Restore failed',
+          error instanceof Error ? error.message : 'That file could not be read.'
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [invalidate, reload]
+  );
+
+  const handleImport = useCallback(async () => {
+    let payload: unknown;
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'text/plain', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled) return;
+
+      const asset = picked.assets?.[0];
+      if (!asset) return;
+
+      const text = await new File(asset.uri).text();
+      payload = JSON.parse(text) as unknown;
+    } catch (error) {
+      Alert.alert(
+        'Could not read that file',
+        error instanceof SyntaxError
+          ? 'That file is not valid JSON. Pick a MacroTrack export file.'
+          : error instanceof Error
+            ? error.message
+            : 'Please try again.'
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Restore backup',
+      'Merge keeps what is already here and adds anything missing. Replace deletes this account\u2019s current data first.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Merge', onPress: () => void runImport(payload, 'merge') },
+        {
+          text: 'Replace',
+          style: 'destructive',
+          onPress: () => void runImport(payload, 'replace'),
+        },
+      ]
+    );
+  }, [runImport]);
 
   const askClearAll = useCallback(() => {
     Alert.alert(
@@ -428,7 +553,7 @@ export default function SettingsScreen(): React.JSX.Element {
               <SegmentedControl<string>
                 options={data.providers.map((p) => ({ label: p.label, value: p.id }))}
                 value={settings.visionProvider}
-                onChange={(visionProvider) => applySettings({ visionProvider })}
+                onChange={handleVisionProviderChange}
                 size="sm"
               />
             ) : (
@@ -624,6 +749,23 @@ export default function SettingsScreen(): React.JSX.Element {
         />
         <Divider />
         <SettingsRow
+          title="Restore from backup"
+          subtitle="Bring a previously exported JSON file back."
+          icon="cloud-upload-outline"
+          testID="setting-import"
+          right={
+            <Button
+              title="Restore"
+              size="sm"
+              variant="secondary"
+              onPress={() => void handleImport()}
+              loading={busy === 'import'}
+              testID="data-import"
+            />
+          }
+        />
+        <Divider />
+        <SettingsRow
           title="Clear all data"
           subtitle="Permanently deletes everything on this device."
           icon="trash-outline"
@@ -638,6 +780,22 @@ export default function SettingsScreen(): React.JSX.Element {
               testID="data-clear"
             />
           }
+        />
+        <Divider />
+        <SettingsRow
+          title="Privacy policy"
+          subtitle="What stays on this device, and what doesn't."
+          icon="shield-checkmark-outline"
+          testID="setting-privacy"
+          onPress={() => router.push('/privacy')}
+        />
+        <Divider />
+        <SettingsRow
+          title="About"
+          subtitle="Version, licences and support details."
+          icon="information-circle-outline"
+          testID="setting-about"
+          onPress={() => router.push('/about')}
         />
         <Divider />
         <SettingsRow

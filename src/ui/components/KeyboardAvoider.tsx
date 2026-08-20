@@ -22,6 +22,7 @@ export function KeyboardAvoider({
 }: KeyboardAvoiderProps): React.JSX.Element {
   return (
     <KeyboardAvoidingView
+      accessible={false}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={offset}
       style={[styles.fill, style]}

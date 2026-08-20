@@ -86,6 +86,13 @@ export { getSettings, saveSettings, SETTINGS_KEYS } from './settings';
 
 // admin
 export { clearAllData, exportAllData, getDbStats, type DbStats } from './admin';
+export {
+  importAllData,
+  type ImportOptions,
+  type ImportResult,
+  type ImportTableCount,
+  type ImportTableName,
+} from './importData';
 
 // mappers + row types (useful for services that read rows directly)
 export {

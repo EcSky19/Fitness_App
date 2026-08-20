@@ -8,10 +8,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.macrotrack.app",
+      "buildNumber": "1",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Allow MacroTrack to read your steps, workouts, energy burned and weight so your daily targets stay accurate.",
         "NSHealthUpdateUsageDescription": "Allow MacroTrack to save your weight entries to Apple Health.",
@@ -21,6 +25,7 @@
     },
     "android": {
       "package": "com.macrotrack.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -58,6 +63,19 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow MacroTrack to access your photos to analyze food images."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#E6F4FE",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#0B1F2A"
+          },
+          "imageWidth": 200,
+          "resizeMode": "contain"
         }
       ]
     ],

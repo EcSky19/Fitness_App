@@ -62,10 +62,12 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 ### Settings (`app/settings.tsx`)
 - Account management.
 - Units, theme and exercise-budget preferences.
-- AI provider/key storage.
+- AI provider/key storage. Switching to a provider that uploads photos asks for
+  explicit confirmation first, so the choice is never silently changed.
 - Barcode lookup source.
 - Health status, permissions and sync toggle.
-- Data export as JSON and account-scoped data clearing.
+- Data export as JSON, restore from a backup file, and account-scoped clearing.
+- Privacy policy and About screens.
 
 ### Scan (`app/scan.tsx` → `app/scan-review.tsx`)
 Take or pick a food image, analyze it with the mock/OpenAI/Gemini provider, review every detected item, adjust quantities/macros and log the chosen items in one transaction. Food photos are copied under `document/food-entry-photos/<accountId>/` and deleted when the entry or the signed-in account's data is deleted.
@@ -234,11 +236,33 @@ Units: weights are stored in kilograms, heights in centimetres and energy in kca
 
 ---
 
-## Data export and deletion
+## Data export, restore and deletion
 
 Settings → **Export data** creates a JSON snapshot for the signed-in account. It includes that account's profile, goals, entries, workouts, weight logs and settings, plus the visible food catalogue (shared seed foods and that account's foods). On Android the app writes a cache file and shares its URI instead of placing the full plaintext health history in an intent extra; the confirmation dialog states what the file contains.
 
+Settings → **Restore from backup** reads an exported file back in. You choose:
+
+- **Merge** — keep what is already there and add what is missing. Rows that already exist on this account are skipped rather than duplicated.
+- **Replace** — clear the signed-in account's data first, then import.
+
+A backup written by a newer schema version is refused rather than partially applied. IDs that collide with another account's rows are remapped, and entries whose food is missing from the backup are skipped with a warning instead of failing the whole restore. The result dialog reports how many records were restored, skipped and warned about.
+
 Settings → **Clear all data** deletes the signed-in account's profile, goals, custom foods, entries, workouts, weight logs and settings, and best-effort deletes food photo files referenced by that account's food entries. Account deletion also removes that account's recovery data. Shared seed foods and other accounts are left alone.
+
+---
+
+## Reliability
+
+- **Crash recovery.** The whole app is wrapped in an `ErrorBoundary`
+  (`src/ui/components/ErrorBoundary.tsx`). A render crash shows a recoverable
+  screen with a retry action instead of a white screen. The fallback uses plain
+  React Native primitives only, so a bug in the UI kit cannot also break the
+  screen that reports it.
+- **Storage failure is visible.** If the database cannot be opened (corrupt file,
+  no free space, failed migration) the app still finishes booting, but
+  `storageAvailable` is false and a banner tells the user their data is not being
+  saved. Without this the app looked normal while silently discarding every meal
+  that was logged.
 
 ---
 
@@ -265,9 +289,21 @@ npx expo export -p ios
 
 ---
 
+## Releasing
+
+Store builds are configured in `eas.json` and the full runbook lives in
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) — build profiles, versioning policy,
+submission steps and the pre-submission checklist. Read it before the first
+release: it documents two open store-submission decisions (the declared Health
+Connect permissions and the placeholder fields in [`PRIVACY.md`](./PRIVACY.md)).
+
+---
+
 ## Known limitations / next steps
 
-- **No cloud sync.** Accounts are local to one device. Export produces JSON, but there is no in-app import/restore flow.
+- **No cloud sync.** Accounts are local to one device. Backups are manual: export
+  produces a JSON file and **Restore from backup** reads one back in, but nothing
+  syncs on its own.
 - **No server password recovery.** If an account has no security question and the password is forgotten, that account's data is unrecoverable.
 - **Barcode coverage depends on Open Food Facts.** It is a crowd-sourced database, so entries can be missing, incomplete or wrong. Products are always shown for review before they are saved, and anything you confirm is stored locally and reused.
 - **Photo portion estimates are approximate.** Vision models infer grams from a single 2D image; review quantities before logging.

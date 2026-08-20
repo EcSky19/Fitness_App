@@ -94,12 +94,22 @@ export default function WeightScreen(): React.JSX.Element {
       scrollable
       refreshing={loading}
       onRefresh={reload}
-      headerRight={<Button title="Log" icon="add" size="sm" onPress={() => openNew()} />}
+      headerRight={
+        <Button
+          title="Log"
+          icon="add"
+          size="sm"
+          accessibilityLabel="Log weight"
+          onPress={() => openNew()}
+        />
+      }
     >
       <View style={{ gap: spacing.lg }}>
         {error ? (
           <Card>
-            <Text style={[typography.label, { color: colors.danger }]}>{error}</Text>
+            <Text accessibilityRole="alert" style={[typography.label, { color: colors.danger }]}>
+              {error}
+            </Text>
           </Card>
         ) : null}
 
@@ -152,6 +162,7 @@ export default function WeightScreen(): React.JSX.Element {
               variant="secondary"
               size="sm"
               icon="flag-outline"
+              accessibilityLabel="Go to profile to set a goal weight"
               onPress={() => router.push('/(tabs)/profile')}
             />
           </Card>
@@ -167,6 +178,7 @@ export default function WeightScreen(): React.JSX.Element {
             />
             {importError ? (
               <Text
+                accessibilityRole="alert"
                 style={[
                   typography.caption,
                   {

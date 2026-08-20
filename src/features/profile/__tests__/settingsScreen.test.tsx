@@ -45,6 +45,40 @@ jest.mock('@/db/repositories', () => ({
   exportAllData: jest.fn(async () => ({ profile: { name: 'Alex' }, entries: [] })),
   clearAllData: jest.fn(async () => undefined),
   saveSettings: jest.fn(async () => undefined),
+  importAllData: jest.fn(async () => ({
+    mode: 'merge',
+    counts: {
+      profile: { imported: 1, skipped: 0 },
+      goals: { imported: 2, skipped: 0 },
+      foods: { imported: 3, skipped: 1 },
+      foodEntries: { imported: 4, skipped: 0 },
+      recipes: { imported: 0, skipped: 0 },
+      recipeItems: { imported: 0, skipped: 0 },
+      exerciseEntries: { imported: 0, skipped: 0 },
+      weightLogs: { imported: 5, skipped: 0 },
+      settings: { imported: 1, skipped: 0 },
+    },
+    warnings: [],
+  })),
+}));
+
+const mockGetDocumentAsync = jest.fn();
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: (...args: unknown[]) => mockGetDocumentAsync(...args),
+}));
+
+const mockFileText = jest.fn(async () => '{}');
+jest.mock('expo-file-system', () => ({
+  Paths: { cache: 'file:///cache' },
+  // A constructor function returning an object, so `new File(uri)` works without
+  // a class body (babel-plugin-jest-hoist rejects TS parameter properties here).
+  File: function MockFile() {
+    return {
+      text: mockFileText,
+      write: () => undefined,
+      info: () => ({ contentUri: 'content://export.json' }),
+    };
+  },
 }));
 
 import * as repos from '@/db/repositories';
@@ -250,5 +284,118 @@ describe('Settings — data', () => {
     expect(useAppStore.getState().profile).toBeNull();
     expect(mockReplace).toHaveBeenCalledWith('/onboarding');
     alertSpy.mockRestore();
+  });
+
+  /**
+   * Restore is the counterpart to export: without it a backup can never come
+   * back, so a lost phone means the whole history is gone. The file is
+   * user-supplied, so the failure paths matter as much as the happy one.
+   */
+  describe('restore from backup', () => {
+    beforeEach(() => {
+      mockGetDocumentAsync.mockReset();
+      mockFileText.mockReset();
+      (repos.importAllData as jest.Mock).mockClear();
+    });
+
+    async function pressRestore(): Promise<void> {
+      render(<SettingsScreen />);
+      await flushAsync();
+      fireEvent.press(screen.getByTestId('data-import'));
+      await flushAsync();
+    }
+
+    it('does nothing when the user cancels the file picker', async () => {
+      mockGetDocumentAsync.mockResolvedValueOnce({ canceled: true, assets: null });
+
+      await pressRestore();
+
+      expect(repos.importAllData).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file that is not valid JSON without throwing', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      mockGetDocumentAsync.mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///pick/notes.txt' }],
+      });
+      mockFileText.mockResolvedValueOnce('this is not json');
+
+      await pressRestore();
+
+      expect(repos.importAllData).not.toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Could not read that file',
+        expect.stringContaining('not valid JSON')
+      );
+      alertSpy.mockRestore();
+    });
+
+    it('asks whether to merge or replace before touching any data', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      mockGetDocumentAsync.mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///pick/backup.json' }],
+      });
+      mockFileText.mockResolvedValueOnce('{"version":4,"foods":[]}');
+
+      await pressRestore();
+
+      expect(repos.importAllData).not.toHaveBeenCalled();
+      const buttons = alertSpy.mock.calls[0][2] as { text: string }[];
+      expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Merge', 'Replace']);
+      alertSpy.mockRestore();
+    });
+
+    it('imports with the chosen mode and reports what was restored', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      mockGetDocumentAsync.mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///pick/backup.json' }],
+      });
+      mockFileText.mockResolvedValueOnce('{"version":4,"foods":[]}');
+
+      await pressRestore();
+
+      const buttons = alertSpy.mock.calls[0][2] as {
+        text: string;
+        onPress?: () => void;
+      }[];
+      await act(async () => {
+        buttons.find((b) => b.text === 'Replace')?.onPress?.();
+      });
+      await flushAsync();
+
+      expect(repos.importAllData).toHaveBeenCalledWith({ version: 4, foods: [] }, { mode: 'replace' });
+      const summary = alertSpy.mock.calls.find((c) => c[0] === 'Restore complete');
+      expect(summary?.[1]).toContain('16 records restored');
+      expect(summary?.[1]).toContain('1 skipped');
+      alertSpy.mockRestore();
+    });
+
+    it('surfaces an import failure instead of failing silently', async () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+      mockGetDocumentAsync.mockResolvedValueOnce({
+        canceled: false,
+        assets: [{ uri: 'file:///pick/backup.json' }],
+      });
+      mockFileText.mockResolvedValueOnce('{"version":99}');
+      (repos.importAllData as jest.Mock).mockRejectedValueOnce(
+        new Error('Backup is from a newer version of MacroTrack.')
+      );
+
+      await pressRestore();
+      const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress?: () => void }[];
+      await act(async () => {
+        buttons.find((b) => b.text === 'Merge')?.onPress?.();
+      });
+      await flushAsync();
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Restore failed',
+        'Backup is from a newer version of MacroTrack.'
+      );
+      alertSpy.mockRestore();
+    });
   });
 });

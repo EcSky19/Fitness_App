@@ -133,6 +133,7 @@ export function WeightChartCard({
               series={series}
               height={200}
               goalLine={goalLine}
+              unit={unit}
               yFormatter={(value: number) => `${value.toFixed(1)}`}
               xFormatter={(value: number) => formatDateShort(isoFromMs(value))}
             />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -16,6 +16,8 @@ export interface SettingsRowProps {
   toggle?: { value: boolean; onChange: (v: boolean) => void };
   /** Stack `right` under the text instead of beside it (wide controls). */
   stacked?: boolean;
+  /** Makes the whole row tappable — for rows that navigate somewhere. */
+  onPress?: () => void;
   testID?: string;
   children?: React.ReactNode;
 }
@@ -29,13 +31,14 @@ export function SettingsRow({
   right,
   toggle,
   stacked = false,
+  onPress,
   testID,
   children,
 }: SettingsRowProps): React.JSX.Element {
   const { colors, spacing, radius, typography } = useTheme();
 
-  return (
-    <View style={{ paddingVertical: spacing.md }} testID={testID}>
+  const body = (
+    <>
       <View style={styles.row}>
         {icon ? (
           <View
@@ -73,10 +76,35 @@ export function SettingsRow({
           />
         ) : !stacked && right ? (
           <View style={{ marginLeft: spacing.sm }}>{right}</View>
+        ) : onPress ? (
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         ) : null}
       </View>
       {stacked && right ? <View style={{ marginTop: spacing.sm }}>{right}</View> : null}
       {children ? <View style={{ marginTop: spacing.sm }}>{children}</View> : null}
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        style={({ pressed }) => [{ paddingVertical: spacing.md }, pressed ? { opacity: 0.6 } : null]}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          onPress();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
+        testID={testID}
+      >
+        {body}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={{ paddingVertical: spacing.md }} testID={testID}>
+      {body}
     </View>
   );
 }

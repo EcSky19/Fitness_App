@@ -16,6 +16,9 @@ export function Divider({ inset = 0, style }: DividerProps): React.JSX.Element {
 
   return (
     <View
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
       style={[
         styles.line,
         // `width: '100%'` plus a left margin overflows the parent by `inset`;

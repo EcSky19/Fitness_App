@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Alert,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -47,6 +49,13 @@ function formatLockout(email: string): string | null {
   return `Too many attempts. Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`;
 }
 
+function useAnnounceMessage(message: string | null): void {
+  useEffect(() => {
+    if (!message) return;
+    AccessibilityInfo.announceForAccessibility(message);
+  }, [message]);
+}
+
 export function PasswordField({
   label,
   value,
@@ -90,6 +99,8 @@ export function PasswordField({
         <TextInput
           testID={testID}
           accessibilityLabel={label}
+          accessibilityHint={error ?? helper}
+          accessibilityState={{ disabled: false }}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
@@ -107,7 +118,11 @@ export function PasswordField({
         />
       </View>
       {error ? (
-        <Text style={[typography.caption, { color: colors.danger, marginTop: spacing.xs }]}>
+        <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={[typography.caption, { color: colors.danger, marginTop: spacing.xs }]}
+        >
           {error}
         </Text>
       ) : helper ? (
@@ -126,10 +141,16 @@ export function PasswordStrength({ password }: { password: string }): React.JSX.
   const bars = [0, 1, 2, 3];
   const tone =
     check.score >= 3 ? colors.success : check.score >= 2 ? colors.warning : colors.danger;
+  const label = `Password strength: ${SCORE_LABELS[check.score]}`;
 
   return (
-    <View testID="password-strength">
-      <View style={[styles.strengthBars, { gap: spacing.xs }]}>
+    <View testID="password-strength" accessibilityLabel={label}>
+      <View
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.strengthBars, { gap: spacing.xs }]}
+      >
         {bars.map((bar) => (
           <View
             key={bar}
@@ -141,7 +162,7 @@ export function PasswordStrength({ password }: { password: string }): React.JSX.
         ))}
       </View>
       <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.xs }]}>
-        {`Password strength: ${SCORE_LABELS[check.score]}`}
+        {label}
       </Text>
       {check.problems.map((problem) => (
         <Text key={problem} style={[typography.caption, { color: colors.danger }]}>
@@ -170,6 +191,8 @@ export function AccountSwitcherSheet({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const submitRef = useRef(false);
+
+  useAnnounceMessage(error);
 
   useEffect(() => {
     if (!visible) return;
@@ -268,6 +291,8 @@ export function SignInForm(): React.JSX.Element {
   const [switchOpen, setSwitchOpen] = useState(false);
   const submitRef = useRef(false);
 
+  useAnnounceMessage(error);
+
   const handleSubmit = useCallback(async () => {
     if (submitRef.current) return;
     const normalized = normalizeEmail(email);
@@ -338,30 +363,33 @@ export function SignInForm(): React.JSX.Element {
         testID="sign-in-submit"
       />
       <View style={{ gap: spacing.sm }}>
-        <Text
-          style={[typography.label, { color: colors.primary }]}
+        <Pressable
           onPress={() => router.push('/(auth)/forgot-password')}
           accessibilityRole="link"
+          accessibilityLabel="Forgot password"
+          hitSlop={8}
           testID="forgot-password-link"
         >
-          Forgot password?
-        </Text>
-        <Text
-          style={[typography.label, { color: colors.primary }]}
+          <Text style={[typography.label, { color: colors.primary }]}>Forgot password?</Text>
+        </Pressable>
+        <Pressable
           onPress={() => setSwitchOpen(true)}
           accessibilityRole="button"
+          accessibilityLabel="Switch local account"
+          hitSlop={8}
           testID="open-switcher"
         >
-          Switch local account
-        </Text>
-        <Text
-          style={[typography.label, { color: colors.primary }]}
+          <Text style={[typography.label, { color: colors.primary }]}>Switch local account</Text>
+        </Pressable>
+        <Pressable
           onPress={() => router.push('/(auth)/sign-up')}
           accessibilityRole="link"
+          accessibilityLabel="Create an account"
+          hitSlop={8}
           testID="create-account-link"
         >
-          Create an account
-        </Text>
+          <Text style={[typography.label, { color: colors.primary }]}>Create an account</Text>
+        </Pressable>
       </View>
       <AccountSwitcherSheet visible={switchOpen} onClose={() => setSwitchOpen(false)} />
     </View>
@@ -383,6 +411,8 @@ export function SignUpForm(): React.JSX.Element {
   const submitRef = useRef(false);
 
   const passwordCheck = useMemo(() => validatePassword(password), [password]);
+
+  useAnnounceMessage(error);
 
   const handleSubmit = useCallback(async () => {
     if (submitRef.current) return;
@@ -540,6 +570,8 @@ export function ForgotPasswordForm(): React.JSX.Element {
   const passwordCheck = useMemo(() => validatePassword(password), [password]);
   const account = accounts.find((a) => a.email === normalizeEmail(email));
 
+  useAnnounceMessage(message);
+
   useEffect(() => {
     void refreshAccounts();
   }, [refreshAccounts]);
@@ -632,7 +664,15 @@ export function ForgotPasswordForm(): React.JSX.Element {
         textContentType="newPassword"
         testID="recovery-confirm"
       />
-      {message ? <Text style={[typography.caption, { color: colors.danger }]}>{message}</Text> : null}
+      {message ? (
+        <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          style={[typography.caption, { color: colors.danger }]}
+        >
+          {message}
+        </Text>
+      ) : null}
       <Button
         title="Reset password"
         onPress={() => void handleReset()}
@@ -660,6 +700,8 @@ export function AccountSection(): React.JSX.Element | null {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [sheetError, setSheetError] = useState<string | null>(null);
   const submitRef = useRef(false);
+
+  useAnnounceMessage(sheetError);
 
   const handleSignOut = useCallback(async () => {
     if (submitRef.current) return;
@@ -814,7 +856,15 @@ export function AccountSection(): React.JSX.Element | null {
             textContentType="newPassword"
             testID="change-confirm-password"
           />
-          {sheetError ? <Text style={[typography.caption, { color: colors.danger }]}>{sheetError}</Text> : null}
+          {sheetError ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={[typography.caption, { color: colors.danger }]}
+            >
+              {sheetError}
+            </Text>
+          ) : null}
           <Button
             title="Save new password"
             onPress={() => void handleChangePassword()}
@@ -847,7 +897,15 @@ export function AccountSection(): React.JSX.Element | null {
             autoCorrect={false}
             testID="delete-confirm-word"
           />
-          {sheetError ? <Text style={[typography.caption, { color: colors.danger }]}>{sheetError}</Text> : null}
+          {sheetError ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={[typography.caption, { color: colors.danger }]}
+            >
+              {sheetError}
+            </Text>
+          ) : null}
           <Button
             title="Delete this account"
             variant="danger"

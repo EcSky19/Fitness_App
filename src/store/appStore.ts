@@ -30,6 +30,15 @@ export interface AppState {
   settings: AppSettings;
   selectedDate: ISODate;
   isReady: boolean;
+  /**
+   * False when the SQLite database could not be opened or migrated.
+   *
+   * Bootstrap deliberately still finishes so the app renders instead of hanging
+   * on a spinner — but every write then fails silently, which would let someone
+   * log a week of meals that were never stored. Screens surface this so the user
+   * finds out immediately rather than discovering the loss later.
+   */
+  storageAvailable: boolean;
   /** Incremented after any write; screens depend on it to re-query. */
   dataVersion: number;
   bootstrap: () => Promise<void>;
@@ -136,6 +145,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   settings: { ...DEFAULT_SETTINGS },
   selectedDate: todayISO(),
   isReady: false,
+  storageAvailable: true,
   dataVersion: 0,
 
   bootstrap: async () => {
@@ -162,7 +172,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       }));
     }
 
-    set({ isReady: true });
+    set({ isReady: true, storageAvailable: dbReady });
   },
 
   setSelectedDate: (d) => set({ selectedDate: d }),

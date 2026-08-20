@@ -49,6 +49,14 @@ export interface LineChartProps {
   xFormatter?: (n: number) => string;
   /** Message shown when no series has any point. */
   emptyMessage?: string;
+  /**
+   * Unit appended to spoken values in the accessibility summary, e.g. "kg".
+   *
+   * Screen-reader users get no axis to read, so a bare "from 84.1 to 82.4" is
+   * ambiguous. Visual labels are left alone — the axis already provides context
+   * on screen.
+   */
+  unit?: string;
   /** Defaults to true when there is more than one series. Needs 2+ labelled series. */
   showLegend?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -80,6 +88,11 @@ interface ScreenPoint {
 
 interface PlacedSeries extends ResolvedSeries {
   screen: ScreenPoint[];
+}
+
+function formatChartValue(value: number, formatter: ((n: number) => string) | undefined): string {
+  if (formatter) return formatter(value);
+  return Number.isInteger(value) ? `${value}` : `${round2(value)}`;
 }
 
 function isFinitePoint(p: LineChartPoint | undefined): p is LineChartPoint {
@@ -119,6 +132,7 @@ export function LineChart({
   yFormatter,
   xFormatter,
   emptyMessage = 'Not enough data yet',
+  unit,
   showLegend,
   style,
   testID,
@@ -273,11 +287,50 @@ export function LineChart({
   // empty series claims data the chart never shows.
   const legendItems = allSeries.filter((s) => !!s.label && s.points.length > 0);
   const legendVisible = (showLegend ?? allSeries.length > 1) && legendItems.length > 1;
+  const chartAccessibilityLabel = useMemo(() => {
+    const suffix = unit && unit.trim().length > 0 ? ` ${unit.trim()}` : '';
+    const spoken = (value: number): string => `${formatChartValue(value, yFormatter)}${suffix}`;
+    const drawable = allSeries.filter((s) => s.points.length > 0);
+    if (drawable.length === 0) return `Trend chart, no data. ${emptyMessage}`;
+
+    const primary = drawable.find((s) => s.label?.toLowerCase().includes('weight')) ?? drawable[0];
+    const first = primary.points[0];
+    const last = primary.points[primary.points.length - 1];
+    const values = primary.points.map((point) => point.y);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const delta = last.y - first.y;
+    const tolerance = Math.max(0.01, Math.abs(first.y) * 0.001);
+    const trend = Math.abs(delta) <= tolerance ? 'stable' : delta < 0 ? 'trending down' : 'trending up';
+    const seriesNames = drawable
+      .map((s) => s.label)
+      .filter((label): label is string => typeof label === 'string' && label.trim().length > 0);
+    const seriesPhrase =
+      seriesNames.length > 1 ? `, showing ${seriesNames.join(' and ')}` : '';
+    const rangePhrase =
+      primary.points.length > 1 && min !== max
+        ? `, values range from ${spoken(min)} to ${spoken(max)}`
+        : '';
+    const goalPhrase =
+      typeof goalLine === 'number' && Number.isFinite(goalLine)
+        ? `, goal line at ${spoken(goalLine)}`
+        : '';
+    const chartName = primary.label ? `${primary.label} trend chart` : 'Trend chart';
+
+    return `${chartName}, ${primary.points.length} ${
+      primary.points.length === 1 ? 'entry' : 'entries'
+    }, from ${spoken(first.y)} to ${spoken(
+      last.y
+    )}, ${trend}${rangePhrase}${goalPhrase}${seriesPhrase}`;
+  }, [allSeries, emptyMessage, goalLine, unit, yFormatter]);
 
   if (model.empty) {
     return (
       <View
         testID={testID}
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel={chartAccessibilityLabel}
         onLayout={handleLayout}
         style={[styles.empty, { height: chartHeight, borderColor: colors.border }, style]}
       >
@@ -291,7 +344,14 @@ export function LineChart({
   const areaSeries = placed.filter((s) => s.showArea);
 
   const chart = (
-    <View testID={testID} onLayout={handleLayout} style={[{ height: chartHeight }, style]}>
+    <View
+      testID={testID}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={chartAccessibilityLabel}
+      onLayout={handleLayout}
+      style={[{ height: chartHeight }, style]}
+    >
       <Svg width={width} height={chartHeight}>
         {areaSeries.length > 0 ? (
           <Defs>
