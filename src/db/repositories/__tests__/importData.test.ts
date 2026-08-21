@@ -51,6 +51,7 @@ import {
   exportAllData,
   getDbStats,
   getFoodEntry,
+  getLatestWeight,
   getProfile,
   getSettings,
   listEntriesByDate,
@@ -387,5 +388,63 @@ describe('importAllData', () => {
     // photo file was cleaned up (after the transaction committed).
     await expect(getFoodEntry(entry.id)).resolves.toBeNull();
     expect(mockFileDelete).toHaveBeenCalledWith(entry.photoUri);
+  });
+
+  it('skips a food entry whose date is not a real calendar day', async () => {
+    const dump = await seedEverything();
+    await clearAllData();
+    const entries = dump.foodEntries as Record<string, unknown>[];
+    // Same shape as a real exported entry, but the day bucket carries a full
+    // timestamp (wrong width) instead of 'YYYY-MM-DD'. Stored as-is it becomes a
+    // ghost: `date = '2026-05-01'` never matches it, so it silently corrupts the
+    // day's totals while being invisible on the diary.
+    entries.push({ ...entries[0], id: 'ghost-food', date: '2026-05-01T12:00:00.000Z' });
+
+    const result = await importAllData(dump, { mode: 'replace' });
+
+    expect(result.counts.foodEntries.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining('foodEntries')]));
+    const db = await getDb();
+    const ghost = await db.getFirstAsync<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM food_entries WHERE date = '2026-05-01T12:00:00.000Z';"
+    );
+    expect(ghost?.c).toBe(0);
+    // The valid entry on the same day is still imported.
+    await expect(listEntriesByDate('2026-05-01')).resolves.toMatchObject([{ name: 'Rice' }]);
+  });
+
+  it('skips an exercise entry whose date names no real day', async () => {
+    const dump = await seedEverything();
+    await clearAllData();
+    const entries = dump.exerciseEntries as Record<string, unknown>[];
+    entries.push({ ...entries[0], id: 'ghost-exercise', externalId: null, date: '2026-02-31' });
+
+    const result = await importAllData(dump, { mode: 'replace' });
+
+    expect(result.counts.exerciseEntries.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('exerciseEntries')])
+    );
+    const db = await getDb();
+    const ghost = await db.getFirstAsync<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM exercise_entries WHERE date = '2026-02-31';"
+    );
+    expect(ghost?.c).toBe(0);
+    await expect(listExercisesByDate('2026-05-01')).resolves.toMatchObject([{ name: 'Run' }]);
+  });
+
+  it('skips a weight log with a garbage date so it cannot poison the latest weight', async () => {
+    const dump = await seedEverything();
+    await clearAllData();
+    const logs = dump.weightLogs as Record<string, unknown>[];
+    // A shape-only-valid date sorts after every real date, so `ORDER BY date
+    // DESC` would forever return this bogus 999 kg row as the current weight.
+    logs.push({ ...logs[0], id: 'ghost-weight', date: '9999-99-99', weightKg: 999 });
+
+    const result = await importAllData(dump, { mode: 'replace' });
+
+    expect(result.counts.weightLogs.skipped).toBeGreaterThanOrEqual(1);
+    expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining('weightLogs')]));
+    await expect(getLatestWeight()).resolves.toMatchObject({ weightKg: 62 });
   });
 });

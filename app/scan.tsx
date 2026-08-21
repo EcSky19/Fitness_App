@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { formatDateLabel, isValidISODate } from '@/domain';
+import { inferMealType } from '@/features/diary/useEntryDraft';
 import { AnalyzingOverlay } from '@/features/scan/AnalyzingOverlay';
 import { CameraOverlay } from '@/features/scan/CameraOverlay';
 import { ScanErrorCard } from '@/features/scan/ScanErrorCard';
@@ -37,15 +38,6 @@ function coerceMeal(value: string | string[] | undefined): MealType | null {
 function coerceDate(value: string | string[] | undefined): ISODate | null {
   const raw = firstParam(value)?.trim();
   return raw && isValidISODate(raw) ? raw : null;
-}
-
-/** breakfast before 10:30, lunch before 15:00, dinner before 21:00, else snack. */
-export function inferMealType(now: Date = new Date()): MealType {
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  if (minutes < 10 * 60 + 30) return 'breakfast';
-  if (minutes < 15 * 60) return 'lunch';
-  if (minutes < 21 * 60) return 'dinner';
-  return 'snack';
 }
 
 function errorText(error: unknown): string {

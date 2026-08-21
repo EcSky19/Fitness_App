@@ -64,8 +64,6 @@ export default function TodayScreen() {
     }
   }, [selectedDate]);
 
-  const defaultMeal = useMemo<MealType>(() => inferMealType(), []);
-
   const handleDateChange = useCallback(
     (next: ISODate) => {
       try {
@@ -143,9 +141,12 @@ export default function TodayScreen() {
     [router, selectedDate]
   );
 
+  // The meal guess is read at the moment of the action, never cached: a phone
+  // can keep this screen mounted for days, so a value captured at mount would
+  // still offer breakfast at dinner time.
   const openScan = useCallback(() => {
-    router.push({ pathname: '/scan', params: { date: selectedDate, mealType: defaultMeal } });
-  }, [router, selectedDate, defaultMeal]);
+    router.push({ pathname: '/scan', params: { date: selectedDate, mealType: inferMealType() } });
+  }, [router, selectedDate]);
 
   return (
     <Screen
@@ -198,7 +199,7 @@ export default function TodayScreen() {
 
         <QuickActionsRow
           onScan={openScan}
-          onAddFood={() => openFoodSearch(defaultMeal)}
+          onAddFood={() => openFoodSearch(inferMealType())}
           onLogExercise={openActivity}
           onLogWeight={openWeight}
         />

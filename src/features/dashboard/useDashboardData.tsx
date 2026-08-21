@@ -23,7 +23,6 @@ import type {
   Goal,
   ISODate,
   MacroTargets,
-  MealType,
   UserProfile,
   WeightLog,
 } from '@/types';
@@ -55,14 +54,13 @@ export function formatGrams(value: number): string {
   return `${Math.round(Number.isFinite(value) ? value : 0)}`;
 }
 
-/** breakfast < 10:30, lunch < 15:00, dinner < 21:00, otherwise snack. */
-export function inferMealType(now: Date = new Date()): MealType {
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  if (minutes < 10 * 60 + 30) return 'breakfast';
-  if (minutes < 15 * 60) return 'lunch';
-  if (minutes < 21 * 60) return 'dinner';
-  return 'snack';
-}
+// `inferMealType` used to live here with a 10:30 breakfast cutoff that
+// disagreed with the diary's 11:00 one, so the same food could land in a
+// different meal depending on which screen opened the logger. It now has a
+// single source of truth in the diary hook; this re-export keeps the existing
+// `@/features/dashboard/useDashboardData` import site (app/(tabs)/index.tsx)
+// working unchanged.
+export { inferMealType } from '@/features/diary/useEntryDraft';
 
 export function resolveTargets(goal: Goal | null, profile: UserProfile | null): MacroTargets {
   if (goal && goal.targets && Number.isFinite(goal.targets.calories)) return goal.targets;

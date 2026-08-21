@@ -9,13 +9,27 @@
  * Only the platform edges are mocked: navigation, the health platform and the
  * vision provider.
  */
-import { act, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import React from 'react';
 
 import { setupTestDb, teardownTestDb } from '@/db/repositories/__tests__/testDb';
 import { todayISO } from '@/db/client';
 import { DEFAULT_SETTINGS, useAppStore } from '@/store/appStore';
 import { useAuthStore } from '@/store/authStore';
+import type { MealType } from '@/types';
+
+/**
+ * Delegates to the real module so every other test keeps real behaviour, while
+ * letting one test pretend the wall clock moved between mount and press.
+ */
+let mockMealNow: MealType | null = null;
+jest.mock('@/features/dashboard/useDashboardData', () => {
+  const actual = jest.requireActual('@/features/dashboard/useDashboardData');
+  return {
+    ...actual,
+    inferMealType: (...args: unknown[]) => mockMealNow ?? actual.inferMealType(...args),
+  };
+});
 
 jest.mock('expo-router', () => {
   const ReactLib = require('react') as typeof import('react');
@@ -242,5 +256,59 @@ describe('today screen', () => {
     expect(screen.getAllByLabelText('Add food').length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText('Log weight').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button').length).toBeGreaterThan(0);
+  });
+
+  it('reads the clock when the user acts, not when the screen mounted', async () => {
+    // Phones keep JS state alive for a backgrounded app for days, so a
+    // dashboard mounted at breakfast must not still guess "breakfast" at
+    // dinner time.
+    const { router } = require('expo-router') as { router: { push: jest.Mock } };
+    try {
+      mockMealNow = 'breakfast';
+      await mount(TodayScreen);
+
+      mockMealNow = 'dinner';
+      fireEvent.press(screen.getAllByLabelText('Add food')[0]);
+
+      expect(router.push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ mealType: 'dinner' }),
+        }),
+      );
+    } finally {
+      mockMealNow = null;
+    }
+  });
+});
+
+describe('scan screen', () => {
+  it('defaults its meal to the same one every other entry point would pick', async () => {
+    // Fake only Date, so promises still flush normally. 10:45 sits inside the
+    // window where a second meal-boundary implementation used to disagree.
+    jest.useFakeTimers({
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    jest.setSystemTime(new Date(2026, 7, 21, 10, 45, 0, 0));
+    try {
+      await mount(ScanScreen);
+      expect(screen.getByTestId('meal-chip')).toHaveTextContent(/Breakfast/);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

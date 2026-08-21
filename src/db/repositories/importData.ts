@@ -3,6 +3,7 @@
  */
 import { boolToInt, runInTransaction } from '@/db/client';
 import { ACCOUNT_ID_COLUMN, COLUMNS, SCHEMA_VERSION, TABLES } from '@/db/schema';
+import { isValidISODate } from '@/domain/dates';
 import { recipeTotals } from '@/domain/recipes';
 import { getCurrentAccountId } from '@/services/auth/currentAccount';
 import type {
@@ -160,6 +161,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function requiredString(row: Record<string, unknown>, key: string): string | null {
   const value = row[key];
   return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * A required day bucket: a real local calendar date written as 'YYYY-MM-DD'.
+ *
+ * `requiredString` is not enough for the `date` columns. A backup — hand-edited,
+ * third-party, or produced by a buggy exporter — can carry a full timestamp
+ * (wrong width) or a shape-only value like '2026-02-31' / '9999-99-99'. Stored
+ * verbatim these become "ghost" rows: `date = '2026-05-01'` never matches a
+ * 24-char timestamp, and a garbage future date sorts after every real day, so
+ * `ORDER BY date DESC` would hand it back as the latest weight forever. The
+ * shared {@link isValidISODate} guard is exactly what `domain/dates` documents
+ * untrusted imported dates must pass; the canonical trimmed value is stored so
+ * padded input can never miss an equality match either.
+ */
+function requiredISODate(row: Record<string, unknown>, key: string): string | null {
+  const value = row[key];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return isValidISODate(trimmed) ? trimmed : null;
 }
 
 function nullableString(row: Record<string, unknown>, key: string): string | null {
@@ -393,7 +414,7 @@ function parseFood(value: unknown): Food | null {
 function parseFoodEntry(value: unknown): FoodEntry | null {
   if (!isRecord(value)) return null;
   const id = requiredString(value, 'id');
-  const date = requiredString(value, 'date');
+  const date = requiredISODate(value, 'date');
   const mealType = requiredUnion<MealType>(value, 'mealType', MEAL_TYPES);
   const quantity = requiredNumber(value, 'quantity');
   const unit = requiredUnion(value, 'unit', SERVING_UNITS);
@@ -528,7 +549,7 @@ function parseRecipe(value: unknown): Recipe | null {
 function parseExerciseEntry(value: unknown): ExerciseEntry | null {
   if (!isRecord(value)) return null;
   const id = requiredString(value, 'id');
-  const date = requiredString(value, 'date');
+  const date = requiredISODate(value, 'date');
   const name = requiredString(value, 'name');
   const category = requiredUnion<ExerciseCategory>(value, 'category', EXERCISE_CATEGORIES);
   const durationMin = requiredNumber(value, 'durationMin');
@@ -559,7 +580,7 @@ function parseExerciseEntry(value: unknown): ExerciseEntry | null {
 function parseWeightLog(value: unknown): WeightLog | null {
   if (!isRecord(value)) return null;
   const id = requiredString(value, 'id');
-  const date = requiredString(value, 'date');
+  const date = requiredISODate(value, 'date');
   const weightKg = requiredNumber(value, 'weightKg');
   const source = requiredUnion(value, 'source', ENTRY_SOURCES);
   const createdAt = requiredString(value, 'createdAt');

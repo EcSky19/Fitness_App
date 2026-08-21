@@ -198,7 +198,14 @@ export function normalizeMealParam(value: RouteParamValue): MealType | undefined
   return isMealType(raw) ? raw : undefined;
 }
 
-/** Meal guessed from the wall clock, used when a caller omits `mealType`. */
+/**
+ * Canonical meal guess from the local wall clock, used when a caller omits
+ * `mealType`. This is the single source of truth: the dashboard re-exports it
+ * (`@/features/dashboard/useDashboardData`) and the scan screen imports it, so a
+ * food never lands in a different meal depending on which screen opened the
+ * logger. Thresholds (local time): breakfast < 11:00, lunch < 15:00,
+ * dinner < 21:00, otherwise snack.
+ */
 export function inferMealType(now: Date = new Date()): MealType {
   const hour = now.getHours();
   if (hour < 11) return 'breakfast';
