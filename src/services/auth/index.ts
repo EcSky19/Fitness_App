@@ -217,16 +217,73 @@ export interface SignUpInput {
 }
 
 /**
+ * Adopts the pre-auth diary for `accountId`, but ONLY while this is the sole
+ * account on the device — see the LEGACY-CLAIM RULE on {@link signUp}.
+ *
+ * Re-checking "exactly one account exists" at claim time is what makes the claim
+ * RECOVERABLE instead of one-shot: the first sign-up runs it, and if it fails
+ * there (the account row is already committed) the very next sign-in runs it
+ * again, and keeps retrying on every sign-in until the rows are adopted — for as
+ * long as theirs stays the only account. The instant a second account exists the
+ * guard refuses, because ownership of the orphaned rows is then ambiguous.
+ *
+ * Best effort by design: a failure is swallowed so it can never block sign-up or
+ * sign-in, and the underlying claim is idempotent (it matches nothing once the
+ * rows are adopted), so re-running it on every sign-in is safe.
+ *
+ * Known, accepted residual: if the first claim fails, a second account is then
+ * created, and that first account is later deleted, the remaining sole account
+ * adopts rows it may not have created. This is narrow (it needs all three steps)
+ * and bounded — `deleteAccount` hard-deletes every child row rather than nulling
+ * `account_id`, so the only `account_id IS NULL` rows on the device are the
+ * pre-auth ones from migration 2. Closing it entirely would need a persisted
+ * "was the first account" flag, i.e. a schema change; permanently losing the
+ * upgrading user's whole diary is the worse trade.
+ */
+async function claimLegacyDataIfSoleAccount(accountId: ID): Promise<void> {
+  try {
+    if ((await countAccounts()) === 1) {
+      await claimLegacyData(accountId);
+    }
+  } catch {
+    // Swallowed on purpose: the next sign-in retries while this stays the only
+    // account. A failed claim must never turn a committed account into a failed
+    // sign-up/sign-in.
+  }
+}
+
+/**
+ * Stamps last-login without ever failing the caller. The account is already
+ * committed, so a failed bookkeeping UPDATE must not strand the user on a
+ * `storage_error` that a retry would report as `email_taken`.
+ */
+async function touchLastLoginSafely(accountId: ID): Promise<void> {
+  try {
+    await touchLastLogin(accountId);
+  } catch {
+    // Bookkeeping only — never block auth on it.
+  }
+}
+
+/**
  * Creates an account and signs it in.
  *
  * LEGACY-CLAIM RULE — read before changing:
- * `claimLegacyData()` runs if and ONLY if this is the FIRST account on the
- * device. Migration 2 left the pre-auth diary with `account_id IS NULL`; the
- * first account to exist adopts it so an upgrading single user does not lose
- * their history. Every subsequent account starts empty, because there is no way
- * to know which of several people the old rows belonged to — and silently
- * handing one person's food diary to the next person who signs up would be a
- * privacy breach, not a convenience.
+ * The pre-auth diary that migration 2 left with `account_id IS NULL` is adopted
+ * only while the device has EXACTLY ONE account (see
+ * {@link claimLegacyDataIfSoleAccount}). A sole account is unambiguously the
+ * owner, so an upgrading single user keeps their history; the moment a SECOND
+ * account exists ownership is ambiguous and the rows must NEVER be claimed by
+ * anyone — silently handing one person's food diary to the next person who signs
+ * up would be a privacy breach, not a convenience.
+ *
+ * The claim is RECOVERABLE, not one-shot. The account row is committed BEFORE the
+ * claim runs, so a failed claim (or last-login stamp) still signs the user in
+ * rather than returning a `storage_error` that the next attempt reports as
+ * `email_taken` while the diary stays orphaned forever. Because the
+ * exactly-one-account guard is re-checked on every sign-in, a claim that failed
+ * here is retried on the user's next sign-in — for as long as theirs remains the
+ * only account.
  */
 export async function signUp(input: SignUpInput): Promise<AuthResult<AuthSession>> {
   const email = normalizeEmail(input?.email ?? '');
@@ -247,9 +304,6 @@ export async function signUp(input: SignUpInput): Promise<AuthResult<AuthSession
     const password = await hashPassword(input.password);
     const security = await hashSecurityAnswer(input?.securityQuestion, input?.securityAnswer);
 
-    // Counted BEFORE the insert: 0 means this account is the device's first.
-    const isFirstAccount = (await countAccounts()) === 0;
-
     const account = await createAccount({
       email,
       displayName,
@@ -258,11 +312,11 @@ export async function signUp(input: SignUpInput): Promise<AuthResult<AuthSession
       securityAnswer: security?.answer ?? null,
     });
 
-    if (isFirstAccount) {
-      await claimLegacyData(account.id);
-    }
-
-    await touchLastLogin(account.id);
+    // The account row is now committed, so sign-up has succeeded. Everything
+    // below is best-effort: it must sign the user in, never strand them on a
+    // storage_error that a retry reports as email_taken (see LEGACY-CLAIM RULE).
+    await claimLegacyDataIfSoleAccount(account.id);
+    await touchLastLoginSafely(account.id);
     clearFailures(email);
     const session = await establishSession(account);
     return succeed(session);
@@ -339,6 +393,10 @@ export async function signIn(input: SignInInput): Promise<AuthResult<AuthSession
     }
 
     clearFailures(email);
+    // Recover an orphaned pre-auth diary if the first sign-up's claim failed.
+    // Guarded to a sole account, so it never adopts rows when ownership is
+    // ambiguous (see LEGACY-CLAIM RULE on signUp).
+    await claimLegacyDataIfSoleAccount(record.id);
     await touchLastLogin(record.id);
     const session = await establishSession(record);
     return succeed(session);

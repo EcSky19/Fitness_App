@@ -21,7 +21,7 @@ import {
 } from './mappers';
 import { deleteFoodPhotoFile } from './photoFiles';
 import { getProfile } from './profile';
-import { listRecipes } from './recipes';
+import { listAllRecipes } from './recipes';
 import { getSettings } from './settings';
 
 export interface DbStats {
@@ -40,7 +40,7 @@ export async function exportAllData(): Promise<Record<string, unknown>> {
   const profile = await getProfile();
   const goals = await listGoals();
   const settings = await getSettings();
-  const recipes: Recipe[] = await listRecipes();
+  const recipes: Recipe[] = await listAllRecipes();
 
   const foodRows = accountId
     ? await db.getAllAsync<FoodRow>(
@@ -111,6 +111,16 @@ export async function clearAllData(): Promise<void> {
       accountId
     );
     for (const row of photoRows ?? []) {
+      if (row.photo_uri) photosToDelete.push(row.photo_uri);
+    }
+
+    // Recipes carry photos too; missing them here leaves a file on disk for
+    // every recipe with no row left to ever reference or clean it up.
+    const recipePhotoRows = await db.getAllAsync<{ photo_uri: string | null }>(
+      'SELECT photo_uri FROM recipes WHERE account_id = ? AND photo_uri IS NOT NULL;',
+      accountId
+    );
+    for (const row of recipePhotoRows ?? []) {
       if (row.photo_uri) photosToDelete.push(row.photo_uri);
     }
 

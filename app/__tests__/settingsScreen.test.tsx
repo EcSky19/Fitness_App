@@ -48,6 +48,22 @@ jest.mock('@/features/auth/AuthUI', () => ({
 
 jest.mock('@/services/foodSearch', () => ({ ensureFoodsSeeded: jest.fn(async () => 0) }));
 
+/**
+ * Delegates to the real repositories so the rest of this suite keeps its real
+ * SQLite behaviour, while letting one test make a settings write fail.
+ */
+let mockSettingsSaveError: Error | null = null;
+jest.mock('@/db/repositories', () => {
+  const actual = jest.requireActual('@/db/repositories');
+  return {
+    ...actual,
+    saveSettings: (...args: unknown[]) =>
+      mockSettingsSaveError
+        ? Promise.reject(mockSettingsSaveError)
+        : actual.saveSettings(...args),
+  };
+});
+
 const mockIsHealthSupported = jest.fn(() => false);
 const mockGetPermissionStatus = jest.fn(async () => 'undetermined' as string);
 const mockRequestPermissions = jest.fn(async () => 'denied' as string);
@@ -776,6 +792,27 @@ describe('Settings — toggles persist', () => {
       await useAppStore.getState().bootstrap();
     });
     expect(useAppStore.getState().settings.addExerciseToTarget).toBe(false);
+  });
+
+  it('reverts and reports a toggle whose write never reached the database', async () => {
+    // The store update is optimistic. If the write fails and we stay silent the
+    // toggle looks saved, then quietly reverts on the next cold start.
+    await renderSettings();
+    const initialUnit = useAppStore.getState().settings.weightUnit;
+    const otherLabel = initialUnit === 'kg' ? 'Pounds' : 'Kilograms';
+
+    mockSettingsSaveError = new Error('disk is full');
+    try {
+      await act(async () => {
+        fireEvent.press(screen.getByText(otherLabel));
+      });
+      await flush();
+
+      expect(screen.getByTestId('settings-save-error')).toBeTruthy();
+      expect(useAppStore.getState().settings.weightUnit).toBe(initialUnit);
+    } finally {
+      mockSettingsSaveError = null;
+    }
   });
 });
 

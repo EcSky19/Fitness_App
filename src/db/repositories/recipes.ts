@@ -312,6 +312,26 @@ export async function listRecipes(opts?: {
   return attachItems(db, rows ?? [], accountId);
 }
 
+/**
+ * Every recipe for the current account, with no page limit.
+ *
+ * `listRecipes` is deliberately capped (it backs the recipe browser), so a
+ * full-database export must not reuse it — otherwise recipes past the cap are
+ * silently dropped from the backup and lost on restore. Exports use this.
+ */
+export async function listAllRecipes(): Promise<Recipe[]> {
+  const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return [];
+  const rows = await db.getAllAsync<RecipeRow>(
+    `SELECT ${RECIPE_COLUMNS} FROM recipes
+     WHERE account_id = ?
+     ORDER BY is_favorite DESC, (last_logged_at IS NULL) ASC, last_logged_at DESC, name ASC;`,
+    accountId
+  );
+  return attachItems(db, rows ?? [], accountId);
+}
+
 export async function getRecipe(id: ID): Promise<Recipe | null> {
   const db = await ensureReady();
   const accountId = currentAccountScope();

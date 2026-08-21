@@ -12,6 +12,7 @@ import {
   getSettings,
   saveGoal,
   saveProfile,
+  saveRecipe,
   saveSettings,
   upsertFood,
   type NewFoodEntry,
@@ -168,6 +169,30 @@ describe('admin repository', () => {
     expect(dump.exerciseEntries).toHaveLength(1);
     expect(dump.weightLogs).toHaveLength(1);
     expect(dump.settings).toEqual({ weightUnit: 'kg', healthSyncEnabled: true });
+  });
+
+  it('exports every recipe, not just the first page', async () => {
+    const total = 51;
+    for (let i = 0; i < total; i += 1) {
+      await saveRecipe({
+        name: `Recipe ${String(i).padStart(3, '0')}`,
+        items: [
+          {
+            foodId: null,
+            name: 'Ingredient',
+            quantity: 1,
+            unit: 'serving',
+            gramsTotal: 100,
+            macros: { calories: 100, protein: 10, carbs: 10, fat: 2 },
+            sortOrder: 0,
+          },
+        ],
+      });
+    }
+
+    const dump = await exportAllData();
+
+    expect(dump.recipes).toHaveLength(total);
   });
 
   it('reports row counts', async () => {

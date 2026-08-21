@@ -104,6 +104,7 @@ export default function SettingsScreen(): React.JSX.Element {
   const [refreshToken, setRefreshToken] = useState(0);
   const [keyInput, setKeyInput] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [clearSheetOpen, setClearSheetOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
@@ -141,8 +142,30 @@ export default function SettingsScreen(): React.JSX.Element {
   const applySettings = useCallback(
     (patch: Partial<AppSettings>) => {
       void Haptics.selectionAsync();
+      const previous = useAppStore.getState().settings;
       updateSettings(patch);
-      void Promise.resolve(saveSettings(patch)).catch(() => undefined);
+      // `updateSettings` also persists, but deliberately swallows its failure so
+      // a bad write can never break the UI. This second write is therefore not
+      // redundant: it is the one we can observe, and removing it would take the
+      // error reporting and rollback below with it.
+      void Promise.resolve(saveSettings(patch)).then(
+        () => setSaveError(null),
+        () => {
+          // The store update above is optimistic. Undo it so the UI cannot keep
+          // showing a preference that never reached the database and would
+          // silently revert on the next cold start.
+          const current = useAppStore.getState().settings;
+          const rollback: Partial<AppSettings> = {};
+          for (const key of Object.keys(patch) as (keyof AppSettings)[]) {
+            // Leave alone anything the user has already changed again.
+            if (current[key] === patch[key]) {
+              (rollback as Record<string, unknown>)[key] = previous[key];
+            }
+          }
+          if (Object.keys(rollback).length > 0) updateSettings(rollback);
+          setSaveError('Could not save that change. Please try again.');
+        }
+      );
     },
     [updateSettings]
   );
@@ -448,6 +471,16 @@ export default function SettingsScreen(): React.JSX.Element {
       testID="settings-screen"
     >
       <AccountSection />
+
+      {saveError ? (
+        <Text
+          style={[typography.caption, { color: colors.danger, marginTop: spacing.sm }]}
+          accessibilityRole="alert"
+          testID="settings-save-error"
+        >
+          {saveError}
+        </Text>
+      ) : null}
 
       {/* ---- Units ---- */}
       <SectionHeader title="Units" />

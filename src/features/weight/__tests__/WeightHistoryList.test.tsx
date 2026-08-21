@@ -176,6 +176,27 @@ describe('WeightHistoryList', () => {
     alertSpy.mockRestore();
   });
 
+  it('warns instead of failing silently when a delete write fails', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const onDeleted = jest.fn();
+    repos.deleteWeightLog.mockRejectedValueOnce(new Error('db is locked'));
+    renderList({ onDeleted });
+
+    fireEvent(screen.getByText('81.0 kg'), 'longPress');
+    const confirmButtons = (alertSpy.mock.calls[0]?.[2] ?? []) as AlertButton[];
+    confirmButtons.find((button) => button.style === 'destructive')?.onPress?.();
+
+    await waitFor(() => expect(repos.deleteWeightLog).toHaveBeenCalledWith('b'));
+    // The write rejected: the user must be told, not left believing the
+    // weigh-in was removed. Every other delete path in the app surfaces this.
+    await waitFor(() => expect(alertSpy.mock.calls.length).toBeGreaterThan(1));
+    expect(alertSpy.mock.calls[alertSpy.mock.calls.length - 1][0]).toBe(
+      'Could not delete weigh-in'
+    );
+    expect(onDeleted).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
   it('does not delete when the confirmation is cancelled', () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     renderList();

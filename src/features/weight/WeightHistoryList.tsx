@@ -69,6 +69,10 @@ export function WeightHistoryList({
         onDeleted?.(log);
       } catch (error) {
         console.warn('[WeightHistoryList] delete failed', error);
+        Alert.alert(
+          'Could not delete weigh-in',
+          error instanceof Error ? error.message : 'Please try again.'
+        );
       }
     },
     [invalidate, onDeleted]

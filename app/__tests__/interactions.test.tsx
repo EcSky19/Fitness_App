@@ -18,6 +18,23 @@ import type { VisionResult } from '@/types';
 const DATE = '2026-08-19';
 const YESTERDAY = '2026-08-18';
 
+/**
+ * Delegates to the real repositories so every other test keeps its real SQLite
+ * behaviour, but lets one test force a read failure. The module namespace is
+ * frozen, so `jest.spyOn` cannot be used here.
+ */
+let mockEntriesReadError: Error | null = null;
+jest.mock('@/db/repositories', () => {
+  const actual = jest.requireActual('@/db/repositories');
+  return {
+    ...actual,
+    listEntriesByDate: (...args: unknown[]) =>
+      mockEntriesReadError
+        ? Promise.reject(mockEntriesReadError)
+        : actual.listEntriesByDate(...args),
+  };
+});
+
 const mockRouter = {
   push: jest.fn(),
   replace: jest.fn(),
@@ -161,6 +178,22 @@ describe('diary pull to refresh', () => {
 
     await waitFor(() => expect(screen.getByText('Greek yogurt')).toBeTruthy());
     await waitFor(() => expect(refreshControl().props.refreshing).toBe(false));
+  });
+
+  it('reports a failed read instead of rendering it as an empty day', async () => {
+    await addFoodEntry(SNACK);
+    // A local-first app has no server copy: if the read fails silently the user
+    // sees a day they logged as empty, and may re-log it into duplicates.
+    mockEntriesReadError = new Error('database is locked');
+
+    try {
+      render(<DiaryScreen />);
+
+      expect(await screen.findByTestId('diary-data-error')).toBeTruthy();
+      expect(screen.queryByText('Greek yogurt')).toBeNull();
+    } finally {
+      mockEntriesReadError = null;
+    }
   });
 });
 

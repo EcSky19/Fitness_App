@@ -100,7 +100,11 @@ export default function FoodSearchScreen(): React.JSX.Element {
     return (await searchAllFoods(trimmedQuery, RESULT_LIMIT)) ?? [];
   }, [tab, trimmedQuery]);
 
-  const { data, loading } = useAsyncData<Food[]>(load, [tab, trimmedQuery, seeded], []);
+  const { data, loading, error: loadError } = useAsyncData<Food[]>(
+    load,
+    [tab, trimmedQuery, seeded],
+    []
+  );
   const results = useMemo(() => data ?? [], [data]);
   const searching = loading || query.trim() !== trimmedQuery;
 
@@ -302,7 +306,14 @@ export default function FoodSearchScreen(): React.JSX.Element {
             />
           )}
           ListEmptyComponent={
-            searching ? null : (
+            searching ? null : loadError ? (
+              <EmptyState
+                testID="food-search-error"
+                icon="alert-circle-outline"
+                title="Could not search your foods"
+                message="Something went wrong reading the food database. Pull down or try again in a moment."
+              />
+            ) : (
               <EmptyState
                 testID="food-search-empty"
                 icon="search-outline"

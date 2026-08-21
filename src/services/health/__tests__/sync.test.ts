@@ -203,6 +203,32 @@ describe('syncHealthDay', () => {
     expect(result.error).toBe('db is locked');
   });
 
+  it('reports failure when some workouts import but others are dropped by a failed write', async () => {
+    // Two real workouts for the day; the first write fails, the second lands.
+    const service = stubService({
+      day: (date) =>
+        summary({
+          date,
+          workouts: [
+            workout({ externalId: 'hk:failed', name: 'Evening Ride' }),
+            workout({ externalId: 'hk:saved', name: 'Morning Run' }),
+          ],
+        }),
+    });
+    mockUpsert.mockRejectedValueOnce(new Error('db is locked'));
+
+    const result = await syncHealthDay(DATE, service);
+
+    // The second workout was written, but the first was silently dropped by a
+    // failed write. Reporting ok:true loses that workout with no signal to the
+    // user (and skips reconciliation, so a stale synthetic row can double-count
+    // the day's burn), so the failure must be surfaced.
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+    expect(mockRows.has('hk:saved')).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('db is locked');
+  });
+
   it('bumps dataVersion so screens re-query', async () => {
     const before = useAppStore.getState().dataVersion;
     await syncHealthDay(DATE, stubService());

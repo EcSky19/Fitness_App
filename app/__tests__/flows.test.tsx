@@ -18,6 +18,23 @@ import type { FoodEntry, VisionResult } from '@/types';
 
 const DATE = '2026-08-19';
 
+/**
+ * Delegates to the real repositories so every other test keeps its real SQLite
+ * behaviour, but lets one test force a search failure. The module namespace is
+ * frozen, so `jest.spyOn` cannot be used here.
+ */
+let mockFoodSearchError: Error | null = null;
+jest.mock('@/services/foodSearch', () => {
+  const actual = jest.requireActual('@/services/foodSearch');
+  return {
+    ...actual,
+    searchAllFoods: (...args: unknown[]) =>
+      mockFoodSearchError
+        ? Promise.reject(mockFoodSearchError)
+        : actual.searchAllFoods(...args),
+  };
+});
+
 const mockRouter = {
   push: jest.fn(),
   replace: jest.fn(),
@@ -211,6 +228,25 @@ describe('scan -> review -> log', () => {
 });
 
 describe('food search -> editor -> log', () => {
+  it('says the search failed instead of claiming the food does not exist', async () => {
+    // "No matches" is an assertion about the food database. On a failed read it
+    // is a false one, and it pushes the user into creating a duplicate custom
+    // food for something they already have.
+    await ensureFoodsSeeded();
+    mockFoodSearchError = new Error('database is locked');
+    mockParams = { date: DATE, mealType: 'lunch' };
+
+    try {
+      render(<FoodSearchScreen />);
+      fireEvent.changeText(screen.getByTestId('food-search-input'), 'chicken breast');
+
+      expect(await screen.findByTestId('food-search-error')).toBeTruthy();
+      expect(screen.queryByText('No matches for "chicken breast"')).toBeNull();
+    } finally {
+      mockFoodSearchError = null;
+    }
+  });
+
   it('passes the picked food to the editor, which saves it to the diary', async () => {
     await ensureFoodsSeeded();
 

@@ -311,7 +311,12 @@ async function syncDay(ctx: SyncContext, date: ISODate): Promise<DaySyncOutcome>
  * Imports one day of health data.
  *
  * Returns `ok: true` with zeroes when health sync is switched off, and
- * `ok: false` when permissions are missing or the write path is unavailable.
+ * `ok: false` when permissions are missing, the write path is unavailable, or
+ * any entry failed to import. A partial failure is a failure: the entries that
+ * did land are still written (and the store is invalidated so they show up), but
+ * the result is `ok: false` so the caller can surface it and retry — silently
+ * dropping a workout would understate the day's burn, and skipping the stale-row
+ * reconciliation on a partial write can leave a synthetic row double-counting it.
  * Safe to call repeatedly: entries are keyed by `externalId`.
  */
 export async function syncHealthDay(
@@ -346,7 +351,9 @@ export async function syncHealthDay(
 
     if (outcome.imported > 0) await invalidateStore();
 
-    if (outcome.imported === 0 && outcome.errors.length > 0) {
+    // Any failed import is surfaced, even when others succeeded: reporting
+    // success while a workout was dropped loses it with no signal to the user.
+    if (outcome.errors.length > 0) {
       return { ok: false, error: outcome.errors[0] };
     }
 

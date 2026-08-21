@@ -335,6 +335,31 @@ describe('repository account scoping', () => {
     expect(mockFileDelete).toHaveBeenCalledWith(clearEntry.photoUri);
   });
 
+  it('deletes recipe photo files on scoped clearAllData', async () => {
+    const recipe = await saveRecipe({
+      name: 'Photo recipe',
+      items: [
+        {
+          foodId: null,
+          name: 'Ingredient',
+          quantity: 1,
+          unit: 'serving',
+          gramsTotal: 100,
+          macros,
+          sortOrder: 0,
+        },
+      ],
+      photoUri: 'file:///camera/recipe.jpg',
+    });
+
+    expect(recipe.photoUri).toContain('/food-entry-photos/account-a/');
+    expect(mockFileCopy).toHaveBeenCalledWith('file:///camera/recipe.jpg', recipe.photoUri);
+
+    mockFileDelete.mockClear();
+    await clearAllData();
+    expect(mockFileDelete).toHaveBeenCalledWith(recipe.photoUri);
+  });
+
   it('keeps photo files when clearAllData rolls back mid-transaction', async () => {
     const entry = await addFoodEntry({
       date: '2026-08-21',

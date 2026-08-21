@@ -82,9 +82,14 @@ export default function DiaryScreen(): React.JSX.Element {
   const previousDate: ISODate = addDaysISO(selectedDate, -1);
 
   const load = useCallback(async (): Promise<DiaryData> => {
+    // Today's entries and workouts are the screen's reason to exist: if either
+    // read fails, let it reject so the user is told, rather than rendering a
+    // logged day as empty and inviting them to re-log it into duplicates. The
+    // goal and yesterday's entries are supporting context, so they still
+    // degrade quietly to a fallback.
     const [entries, exercises, goal, yesterday] = await Promise.all([
-      Promise.resolve(listEntriesByDate(selectedDate)).catch(() => [] as FoodEntry[]),
-      Promise.resolve(listExercisesByDate(selectedDate)).catch(() => [] as ExerciseEntry[]),
+      listEntriesByDate(selectedDate),
+      listExercisesByDate(selectedDate),
       Promise.resolve(getActiveGoal()).catch(() => null),
       Promise.resolve(listEntriesByDate(previousDate)).catch(() => [] as FoodEntry[]),
     ]);
@@ -96,7 +101,11 @@ export default function DiaryScreen(): React.JSX.Element {
     };
   }, [previousDate, selectedDate, storeGoal]);
 
-  const { data, loading, reload } = useAsyncData<DiaryData>(load, [selectedDate], EMPTY_DATA);
+  const { data, loading, error: dataError, reload } = useAsyncData<DiaryData>(
+    load,
+    [selectedDate],
+    EMPTY_DATA
+  );
   const diary = data ?? EMPTY_DATA;
 
   useEffect(() => {
@@ -274,6 +283,16 @@ export default function DiaryScreen(): React.JSX.Element {
 
   return (
     <Screen scrollable refreshing={refreshing} onRefresh={handleRefresh}>
+      {dataError ? (
+        <Text
+          style={[typography.caption, { color: colors.danger, marginBottom: spacing.sm }]}
+          accessibilityRole="alert"
+          testID="diary-data-error"
+        >
+          Could not load this day. Pull down to try again — your entries are still saved.
+        </Text>
+      ) : null}
+
       <View style={styles.dateRow}>
         <View style={styles.dateStepper}>
           <DateStepper date={selectedDate} onChange={setSelectedDate} />
