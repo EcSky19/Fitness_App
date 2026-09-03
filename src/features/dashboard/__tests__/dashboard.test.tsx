@@ -223,6 +223,18 @@ jest.mock('@/domain', () => {
       }
       return streak;
     },
+    computeLongestStreak: (dates: string[], referenceDate: string) => {
+      const sorted = [...new Set(dates)].filter((d) => d <= referenceDate).sort();
+      if (sorted.length === 0) return 0;
+      let longest = 1;
+      let current = 1;
+      for (let i = 1; i < sorted.length; i++) {
+        const prevPlusOne = addDaysISO(sorted[i - 1], 1);
+        current = sorted[i] === prevPlusOne ? current + 1 : 1;
+        longest = Math.max(longest, current);
+      }
+      return longest;
+    },
     isFutureISO: (date: string) => date > iso(new Date()),
     formatDateLabel: (date: string) => date,
     lastNDaysISO: (n: number, end?: string) => {
@@ -602,6 +614,25 @@ describe('TodayScreen', () => {
 
     await renderDashboard();
     await waitFor(() => expect(screen.getByText('3 day streak')).toBeTruthy());
+    expect(screen.getByText('Log something today to keep it going')).toBeTruthy();
+  });
+
+  it('shows the personal best when a past run beats the current streak', async () => {
+    seedRepositories({
+      loggedDates: [
+        TODAY,
+        // A 4-day run two weeks back beats today's 1-day run.
+        shiftISO(TODAY, -14),
+        shiftISO(TODAY, -15),
+        shiftISO(TODAY, -16),
+        shiftISO(TODAY, -17),
+      ],
+    });
+    seedStore({ profile: PROFILE, goal: GOAL_2000 });
+
+    await renderDashboard();
+    await waitFor(() => expect(screen.getByText('1 day streak')).toBeTruthy());
+    expect(screen.getByText('Best: 4 days')).toBeTruthy();
   });
 
   it('shows the onboarding CTA when there is no profile', async () => {
