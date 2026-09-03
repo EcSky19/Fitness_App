@@ -28,6 +28,7 @@ jest.mock('@/db/repositories', () => ({
   listEntriesByDateRange: jest.fn(async () => []),
   listExercisesByDateRange: jest.fn(async () => []),
   listWeightLogs: jest.fn(async () => []),
+  listLoggedDates: jest.fn(async () => []),
   getLatestWeight: jest.fn(async () => null),
   getProfile: jest.fn(async () => null),
   getActiveGoal: jest.fn(async () => null),

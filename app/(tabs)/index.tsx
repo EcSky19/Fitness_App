@@ -11,7 +11,9 @@ import { MacroSummaryCard } from '@/features/dashboard/MacroSummaryCard';
 import { MealsSummaryCard } from '@/features/dashboard/MealsSummaryCard';
 import { OnboardingPromptCard } from '@/features/dashboard/OnboardingPromptCard';
 import { QuickActionsRow } from '@/features/dashboard/QuickActionsRow';
+import { StreakCard } from '@/features/dashboard/StreakCard';
 import { inferMealType, useDashboardData } from '@/features/dashboard/useDashboardData';
+import { useLoggingStreak } from '@/features/dashboard/useLoggingStreak';
 import { WeeklyStrip } from '@/features/dashboard/WeeklyStrip';
 import { WeightSnapshotCard } from '@/features/dashboard/WeightSnapshotCard';
 import { isFutureISO } from '@/domain';
@@ -49,6 +51,7 @@ export default function TodayScreen() {
     error,
     reload,
   } = useDashboardData();
+  const streak = useLoggingStreak();
 
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -184,6 +187,8 @@ export default function TodayScreen() {
         ) : null}
 
         {!profile ? <OnboardingPromptCard onStart={openOnboarding} /> : null}
+
+        <StreakCard streak={streak} />
 
         <CalorieHeroCard
           summary={summary}

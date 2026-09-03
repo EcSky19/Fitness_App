@@ -5,6 +5,7 @@ import {
   getFoodEntry,
   listEntriesByDate,
   listEntriesByDateRange,
+  listLoggedDates,
   updateFoodEntry,
   type NewFoodEntry,
 } from '@/db/repositories';
@@ -93,6 +94,28 @@ describe('food entries repository', () => {
     expect(range.at(-1)?.name).toBe('Dinner');
 
     await expect(listEntriesByDateRange('2026-06-01', '2026-06-30')).resolves.toEqual([]);
+  });
+
+  it('lists distinct logged dates since a cutoff, most recent first, scoped to the account', async () => {
+    await addFoodEntry(entry({ date: '2026-04-30', loggedAt: '2026-04-30T08:00:00.000Z' }));
+    await addFoodEntry(
+      entry({ date: '2026-05-01', name: 'Breakfast', loggedAt: '2026-05-01T07:00:00.000Z' })
+    );
+    // A second entry on the same day must not produce a duplicate date.
+    await addFoodEntry(
+      entry({ date: '2026-05-01', name: 'Dinner', loggedAt: '2026-05-01T19:00:00.000Z' })
+    );
+    await addFoodEntry(entry({ date: '2026-05-03', loggedAt: '2026-05-03T09:00:00.000Z' }));
+
+    await expect(listLoggedDates('2026-04-30')).resolves.toEqual([
+      '2026-05-03',
+      '2026-05-01',
+      '2026-04-30',
+    ]);
+    await expect(listLoggedDates('2026-05-01')).resolves.toEqual(['2026-05-03', '2026-05-01']);
+
+    await useTestAccount('test-account-b');
+    await expect(listLoggedDates('2026-01-01')).resolves.toEqual([]);
   });
 
   it('inserts many entries in one transaction', async () => {

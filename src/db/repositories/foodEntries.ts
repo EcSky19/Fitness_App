@@ -168,6 +168,25 @@ export async function listEntriesByDateRange(
   return (rows ?? []).map(rowToFoodEntry);
 }
 
+/**
+ * Distinct dates with at least one logged entry, on or after `since`,
+ * descending (most recent first). Powers the logging-streak calculation —
+ * a `SELECT DISTINCT` on the indexed `(account_id, date)` columns rather than
+ * fetching every row in the range.
+ */
+export async function listLoggedDates(since: ISODate): Promise<ISODate[]> {
+  const db = await ensureReady();
+  const accountId = currentAccountScope();
+  if (!accountId) return [];
+  const rows = await db.getAllAsync<{ date: ISODate }>(
+    `SELECT DISTINCT date FROM food_entries
+     WHERE account_id = ? AND date >= ? ORDER BY date DESC;`,
+    accountId,
+    since
+  );
+  return (rows ?? []).map((row) => row.date);
+}
+
 /** A single entry by id, or `null`. */
 export async function getFoodEntry(id: ID): Promise<FoodEntry | null> {
   const db = await ensureReady();

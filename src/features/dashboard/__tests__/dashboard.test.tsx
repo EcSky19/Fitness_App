@@ -74,6 +74,7 @@ jest.mock('@/ui', () => {
 
   return {
     useTheme: () => theme,
+    hexToRgba: (hex: string) => hex,
 
     Screen: ({ title, subtitle, headerRight, children }: any) =>
       h(View, { testID: 'screen' }, [
@@ -208,6 +209,20 @@ jest.mock('@/domain', () => {
     sumMacros,
     todayISO: () => iso(new Date()),
     addDaysISO,
+    computeLoggingStreak: (dates: string[], referenceDate: string) => {
+      const logged = new Set(dates);
+      let cursor = referenceDate;
+      if (!logged.has(cursor)) {
+        cursor = addDaysISO(cursor, -1);
+        if (!logged.has(cursor)) return 0;
+      }
+      let streak = 0;
+      while (logged.has(cursor)) {
+        streak += 1;
+        cursor = addDaysISO(cursor, -1);
+      }
+      return streak;
+    },
     isFutureISO: (date: string) => date > iso(new Date()),
     formatDateLabel: (date: string) => date,
     lastNDaysISO: (n: number, end?: string) => {
@@ -275,6 +290,7 @@ jest.mock('@/db/repositories', () => ({
   listEntriesByDateRange: jest.fn(async () => []),
   listExercisesByDateRange: jest.fn(async () => []),
   listWeightLogs: jest.fn(async () => []),
+  listLoggedDates: jest.fn(async () => []),
   getLatestWeight: jest.fn(async () => null),
   getProfile: jest.fn(async () => null),
   getActiveGoal: jest.fn(async () => null),
@@ -316,6 +332,12 @@ function isoOf(d: Date): ISODate {
   const m = `${d.getMonth() + 1}`.padStart(2, '0');
   const day = `${d.getDate()}`.padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function shiftISO(date: ISODate, delta: number): ISODate {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + delta);
+  return isoOf(d);
 }
 
 const TODAY: ISODate = isoOf(new Date());
@@ -425,6 +447,7 @@ interface SeedOptions {
   entries?: FoodEntry[];
   exercises?: ExerciseEntry[];
   weightLogs?: WeightLog[];
+  loggedDates?: ISODate[];
 }
 
 function seedRepositories(options: SeedOptions = {}): void {
@@ -434,6 +457,7 @@ function seedRepositories(options: SeedOptions = {}): void {
   repos.listExercisesByDate.mockResolvedValue(exercises);
   repos.listEntriesByDateRange.mockResolvedValue(entries);
   repos.listExercisesByDateRange.mockResolvedValue(exercises);
+  repos.listLoggedDates.mockResolvedValue(options.loggedDates ?? []);
   repos.listWeightLogs.mockResolvedValue(options.weightLogs ?? []);
 }
 
@@ -569,6 +593,15 @@ describe('TodayScreen', () => {
     expect(screen.getByText('2,000')).toBeTruthy();
     expect(screen.getByText('kcal left')).toBeTruthy();
     expect(screen.getByText('0% of goal')).toBeTruthy();
+    expect(screen.queryByText(/day streak/)).toBeNull();
+  });
+
+  it('renders the logging streak once loggedDates resolves', async () => {
+    seedRepositories({ loggedDates: [TODAY, shiftISO(TODAY, -1), shiftISO(TODAY, -2)] });
+    seedStore({ profile: PROFILE, goal: GOAL_2000 });
+
+    await renderDashboard();
+    await waitFor(() => expect(screen.getByText('3 day streak')).toBeTruthy());
   });
 
   it('shows the onboarding CTA when there is no profile', async () => {

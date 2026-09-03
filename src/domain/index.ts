@@ -13,3 +13,4 @@ export * from './goals';
 export * from './weight';
 export * from './exercise';
 export * from './recipes';
+export * from './streak';
