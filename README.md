@@ -29,7 +29,7 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 - Onboarding prompt when the signed-in account has no completed profile.
 - Logging streak: consecutive days with at least one food entry, always measured against
   today (not whichever day you're viewing), so it stays alive until a full day passes with
-  nothing logged.
+  nothing logged. Shows the personal-best run too, once a past streak beats the current one.
 
 ### Diary (`app/(tabs)/diary.tsx`)
 - Date stepper shared with the dashboard.

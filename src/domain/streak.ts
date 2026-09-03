@@ -5,7 +5,7 @@
  * Pure TypeScript: no React Native, no Expo, no I/O.
  */
 import type { ISODate } from '@/types';
-import { addDaysISO } from './dates';
+import { addDaysISO, diffDaysISO } from './dates';
 
 /**
  * Counts consecutive logged days ending at `referenceDate`, walking backward.
@@ -36,4 +36,30 @@ export function computeLoggingStreak(
     cursor = addDaysISO(cursor, -1);
   }
   return streak;
+}
+
+/**
+ * Longest run of consecutive logged days on or before `referenceDate`
+ * (a personal best, not necessarily the run still in progress).
+ *
+ * Dates after `referenceDate` are ignored so a clock skew or a stray future
+ * entry can never inflate today's record, and duplicate dates collapse
+ * before the run length is measured.
+ */
+export function computeLongestStreak(
+  loggedDates: Iterable<ISODate>,
+  referenceDate: ISODate
+): number {
+  const sorted = [...new Set(loggedDates)]
+    .filter((date) => date <= referenceDate)
+    .sort();
+  if (sorted.length === 0) return 0;
+
+  let longest = 1;
+  let current = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    current = diffDaysISO(sorted[i], sorted[i - 1]) === 1 ? current + 1 : 1;
+    longest = Math.max(longest, current);
+  }
+  return longest;
 }

@@ -1,5 +1,5 @@
 import { addDaysISO } from '../dates';
-import { computeLoggingStreak } from '../streak';
+import { computeLoggingStreak, computeLongestStreak } from '../streak';
 
 const TODAY = '2026-09-03';
 
@@ -45,5 +45,43 @@ describe('computeLoggingStreak', () => {
   it('accepts a Set as well as an array', () => {
     const logged = new Set([daysBack(0), daysBack(1)]);
     expect(computeLoggingStreak(logged, TODAY)).toBe(2);
+  });
+});
+
+describe('computeLongestStreak', () => {
+  it('is 0 when nothing was ever logged', () => {
+    expect(computeLongestStreak([], TODAY)).toBe(0);
+  });
+
+  it('is 1 for a single logged day', () => {
+    expect(computeLongestStreak([daysBack(5)], TODAY)).toBe(1);
+  });
+
+  it('finds the longest run even when it is not the most recent one', () => {
+    // A 4-day run three weeks back beats the 2-day run ending today.
+    const logged = [
+      daysBack(0),
+      daysBack(1),
+      daysBack(20),
+      daysBack(21),
+      daysBack(22),
+      daysBack(23),
+    ];
+    expect(computeLongestStreak(logged, TODAY)).toBe(4);
+  });
+
+  it('ignores dates after the reference date', () => {
+    const logged = [daysBack(0), addDaysISO(TODAY, 1), addDaysISO(TODAY, 2), addDaysISO(TODAY, 3)];
+    expect(computeLongestStreak(logged, TODAY)).toBe(1);
+  });
+
+  it('ignores duplicate dates and out-of-order input', () => {
+    const logged = [daysBack(2), daysBack(0), daysBack(1), daysBack(1), daysBack(0)];
+    expect(computeLongestStreak(logged, TODAY)).toBe(3);
+  });
+
+  it('accepts a Set as well as an array', () => {
+    const logged = new Set([daysBack(0), daysBack(1), daysBack(2)]);
+    expect(computeLongestStreak(logged, TODAY)).toBe(3);
   });
 });
