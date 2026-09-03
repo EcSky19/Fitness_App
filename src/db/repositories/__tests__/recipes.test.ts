@@ -2,6 +2,7 @@ import {
   addFoodEntry,
   createRecipeFromEntries,
   deleteRecipe,
+  duplicateRecipe,
   getRecipe,
   listEntriesByDate,
   listRecipes,
@@ -173,5 +174,51 @@ describe('recipes repository', () => {
     const reloaded = await getRecipe(recipe.id);
     expect(reloaded?.items).toHaveLength(1);
     expect(reloaded?.items[0].foodId).toBe(food.id);
+  });
+
+  it('duplicates a recipe as a fresh, unfavorited, unlogged copy with no photo', async () => {
+    const original = await saveRecipe({
+      name: 'Overnight oats',
+      kind: 'recipe',
+      servings: 2,
+      defaultMealType: 'breakfast',
+      notes: 'prep ahead',
+      items: [recipeItem(), recipeItem({ name: 'Milk', gramsTotal: 200, sortOrder: 1 })],
+    });
+    await toggleFavoriteRecipe(original.id);
+    await logRecipe({
+      recipeId: original.id,
+      date: '2026-08-20',
+      mealType: 'breakfast',
+      servings: 1,
+    });
+
+    const copy = await duplicateRecipe(original.id);
+
+    expect(copy.id).not.toBe(original.id);
+    expect(copy.name).toBe('Overnight oats (copy)');
+    expect(copy.kind).toBe(original.kind);
+    expect(copy.servings).toBe(original.servings);
+    expect(copy.defaultMealType).toBe(original.defaultMealType);
+    expect(copy.notes).toBe(original.notes);
+    expect(copy.totals).toEqual(original.totals);
+    expect(copy.items.map((item) => item.name)).toEqual(original.items.map((item) => item.name));
+    expect(copy.isFavorite).toBe(false);
+    expect(copy.timesLogged).toBe(0);
+    expect(copy.lastLoggedAt).toBeNull();
+    expect(copy.photoUri).toBeNull();
+
+    // The original is untouched by duplicating it.
+    const reloadedOriginal = await getRecipe(original.id);
+    expect(reloadedOriginal?.isFavorite).toBe(true);
+    expect(reloadedOriginal?.timesLogged).toBe(1);
+
+    await expect(listRecipes()).resolves.toHaveLength(2);
+  });
+
+  it('rejects duplicating a recipe that does not exist', async () => {
+    await expect(duplicateRecipe('missing-id')).rejects.toThrow(
+      'duplicateRecipe: recipe not found (missing-id)'
+    );
   });
 });
