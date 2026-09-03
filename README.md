@@ -27,6 +27,9 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 - Macro progress for protein, carbs and fat.
 - Meal summary, activity card, weight snapshot, weekly calorie strip and quick actions.
 - Onboarding prompt when the signed-in account has no completed profile.
+- Logging streak: consecutive days with at least one food entry, always measured against
+  today (not whichever day you're viewing), so it stays alive until a full day passes with
+  nothing logged.
 
 ### Diary (`app/(tabs)/diary.tsx`)
 - Date stepper shared with the dashboard.

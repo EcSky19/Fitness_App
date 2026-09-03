@@ -39,6 +39,7 @@ export {
   getFoodEntry,
   listEntriesByDate,
   listEntriesByDateRange,
+  listLoggedDates,
   repeatEntries,
   updateFoodEntry,
   type NewFoodEntry,
