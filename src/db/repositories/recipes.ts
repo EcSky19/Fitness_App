@@ -407,6 +407,39 @@ export async function saveRecipe(input: {
   return recipe;
 }
 
+/**
+ * Copies a recipe/saved meal (name + " (copy)", every item, `servings`,
+ * `defaultMealType`, `notes`) as a brand-new row: unfavorited, never logged,
+ * with no photo.
+ *
+ * The photo is deliberately dropped rather than pointed at the same file —
+ * `deleteRecipe` removes a recipe's photo unconditionally on the assumption
+ * that no other row references it (recipe photos, unlike food-entry photos,
+ * are never shared), so copying the URI would let deleting either recipe
+ * corrupt the other's photo.
+ */
+export async function duplicateRecipe(id: ID): Promise<Recipe> {
+  const source = await getRecipe(id);
+  if (!source) throw new Error(`duplicateRecipe: recipe not found (${id})`);
+
+  return saveRecipe({
+    name: `${source.name} (copy)`,
+    kind: source.kind,
+    servings: source.servings,
+    defaultMealType: source.defaultMealType,
+    notes: source.notes,
+    items: source.items.map((item) => ({
+      foodId: item.foodId,
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      gramsTotal: item.gramsTotal,
+      macros: item.macros,
+      sortOrder: item.sortOrder,
+    })),
+  });
+}
+
 export async function deleteRecipe(id: ID): Promise<void> {
   const db = await ensureReady();
   const accountId = currentAccountScope();

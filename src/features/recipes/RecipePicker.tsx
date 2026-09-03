@@ -2,7 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { listRecipes, logRecipe, searchRecipes, toggleFavoriteRecipe } from '@/db/repositories';
+import {
+  duplicateRecipe,
+  listRecipes,
+  logRecipe,
+  searchRecipes,
+  toggleFavoriteRecipe,
+} from '@/db/repositories';
 import { formatDateLabel, perServing, recipeTotals, scaleRecipeItems } from '@/domain';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { Button, Card, Chip, DateStepper, Divider, EmptyState, MacroBar, NumberField, SegmentedControl, Sheet, TextField, useTheme } from '@/ui';
@@ -77,12 +83,14 @@ function RecipeRow({
   onLog,
   onSelect,
   onEdit,
+  onDuplicate,
   onToggleFavorite,
 }: {
   recipe: Recipe;
   onLog: (recipe: Recipe) => void;
   onSelect?: (recipe: Recipe) => void;
   onEdit?: (recipe: Recipe) => void;
+  onDuplicate?: (recipe: Recipe) => void;
   onToggleFavorite: (recipe: Recipe) => void;
 }): React.JSX.Element {
   const { colors, spacing, typography } = useTheme();
@@ -119,6 +127,7 @@ function RecipeRow({
       <View style={[styles.actions, { marginTop: spacing.md }]}>
         <Button testID={`recipe-log-${recipe.id}`} title="Log" size="sm" icon="add-circle-outline" onPress={() => onLog(recipe)} />
         {onEdit ? <Button testID={`recipe-edit-${recipe.id}`} title="Edit" size="sm" variant="secondary" onPress={() => onEdit(recipe)} /> : null}
+        {onDuplicate ? <Button testID={`recipe-duplicate-${recipe.id}`} title="Duplicate" size="sm" variant="ghost" icon="copy-outline" onPress={() => onDuplicate(recipe)} /> : null}
       </View>
     </Card>
   );
@@ -245,6 +254,17 @@ export function RecipePicker({
     toggleFavoriteRecipe(recipe.id).then(() => reload()).catch(() => reload());
   }, [reload]);
 
+  // Jumps straight into editing the copy so the user can tweak it right away
+  // rather than having to find it again in the (now-reloaded) list.
+  const handleDuplicate = useCallback((recipe: Recipe) => {
+    duplicateRecipe(recipe.id)
+      .then((created) => {
+        reload();
+        onEditRecipe?.(created);
+      })
+      .catch(() => reload());
+  }, [onEditRecipe, reload]);
+
   const emptyTitle = trimmed ? `No saved meals or recipes for “${trimmed}”` : favoritesOnly ? 'No favorites yet' : 'Save a meal once, log it forever';
   const emptyMessage = trimmed
     ? 'Try a shorter search, or create a saved meal from your usual foods.'
@@ -273,7 +293,7 @@ export function RecipePicker({
         ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
         ListEmptyComponent={!searching ? <EmptyState testID="recipe-empty" icon="restaurant-outline" title={emptyTitle} message={emptyMessage} actionLabel={onCreateRecipe ? 'Create saved meal or recipe' : undefined} onAction={onCreateRecipe} /> : null}
         ListFooterComponent={onCreateRecipe && data.length > 0 ? <><View style={{ height: spacing.lg }} /><Divider /><Button testID="recipe-create" title="Create saved meal or recipe" variant="secondary" icon="add-outline" onPress={onCreateRecipe} fullWidth /></> : null}
-        renderItem={({ item }) => <RecipeRow recipe={item} onLog={setSelected} onSelect={onSelectRecipe} onEdit={onEditRecipe} onToggleFavorite={handleToggleFavorite} />}
+        renderItem={({ item }) => <RecipeRow recipe={item} onLog={setSelected} onSelect={onSelectRecipe} onEdit={onEditRecipe} onDuplicate={onEditRecipe ? handleDuplicate : undefined} onToggleFavorite={handleToggleFavorite} />}
       />
 
       <RecipeLogSheet recipe={selected} initialDate={defaultLogDate(date)} initialMealType={mealType} onClose={() => setSelected(null)} onLogged={onLogged} />

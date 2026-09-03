@@ -55,6 +55,7 @@ jest.mock('@/db/repositories', () => ({
   searchRecipes: jest.fn(),
   saveRecipe: jest.fn(),
   deleteRecipe: jest.fn(),
+  duplicateRecipe: jest.fn(),
   toggleFavoriteRecipe: jest.fn(),
   logRecipe: jest.fn(),
 }));
@@ -157,6 +158,7 @@ beforeEach(() => {
   mockRepoFns.getRecipe.mockResolvedValue(null);
   mockRepoFns.saveRecipe.mockImplementation(async (input) => ({ ...recipe(), ...input }));
   mockRepoFns.deleteRecipe.mockResolvedValue(undefined);
+  mockRepoFns.duplicateRecipe.mockResolvedValue({ ...recipe(), id: 'r1-copy', name: 'Usual breakfast (copy)' });
   mockRepoFns.toggleFavoriteRecipe.mockResolvedValue(recipe({ isFavorite: true }));
   mockRepoFns.logRecipe.mockImplementation(async ({ servings = 1 }) => recipe().items.map((it) => entryFromItem(it, servings / recipe().servings)));
 });
@@ -179,6 +181,21 @@ describe('recipe browse and logging', () => {
     fireEvent.press(screen.getByTestId('recipe-filter-favorites'));
     expect(await screen.findByTestId('recipe-empty')).toHaveTextContent(/No favorites yet/);
     expect(screen.getByText(/Meals are combinations/)).toBeTruthy();
+  });
+
+  it('duplicates a recipe and opens the copy for editing', async () => {
+    render(<RecipesScreen />);
+    await screen.findByTestId('recipe-duplicate-r1');
+
+    fireEvent.press(screen.getByTestId('recipe-duplicate-r1'));
+
+    await waitFor(() => expect(mockRepoFns.duplicateRecipe).toHaveBeenCalledWith('r1'));
+    await waitFor(() =>
+      expect(routerModule.router.push).toHaveBeenCalledWith({
+        pathname: '/recipe-edit',
+        params: { recipeId: 'r1-copy' },
+      })
+    );
   });
 
   it('guards a double-tapped Log recipe confirmation so one set of entries is created', async () => {

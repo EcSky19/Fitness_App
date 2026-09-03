@@ -49,6 +49,7 @@ export {
 export {
   createRecipeFromEntries,
   deleteRecipe,
+  duplicateRecipe,
   getRecipe,
   listRecipes,
   logRecipe,

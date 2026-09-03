@@ -43,6 +43,8 @@ The app has **no server**. Local email/password accounts live in the device SQLi
 - **Recipes** are bulk dishes divided into servings, like a pot of chilli; logging scales every ingredient by `servings / recipe.servings`.
 - Browse, search, filter by kind and star favourites.
 - Build from scratch or from entries you already logged, then reorder/edit ingredients with live totals.
+- Duplicate a recipe or saved meal to create a variant — the copy starts unfavorited, unlogged and
+  with no photo, and opens straight into editing.
 - Logging expands the recipe into real, individually editable diary entries in one transaction.
 
 ### Activity (`app/(tabs)/activity.tsx`)
